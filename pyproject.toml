@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drug-gradient-chip-app"
+version = "0.1.0"
+description = "Forward model runtime wrapper for drug concentration gradient chip prediction."
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "pandas",
+  "pydantic",
+  "torch",
+  "torch-geometric",
+  "xxhash",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+]
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]
+
+[tool.setuptools.packages.find]
+where = ["backend"]

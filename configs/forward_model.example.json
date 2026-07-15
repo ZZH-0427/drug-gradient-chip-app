@@ -1,0 +1,6 @@
+{
+  "model_source_root": "D:\\pytorch_geometric-master",
+  "device": "auto",
+  "seeds": [42, 52, 62, 72, 82],
+  "checkpoint_name": "best_ablation_checkpoint.pt"
+}

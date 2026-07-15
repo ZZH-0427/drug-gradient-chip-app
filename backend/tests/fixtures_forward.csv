@@ -1,0 +1,2 @@
+sample,inlet1,inlet2,P1 - 5to4 1[mm],distance,position,P2 - 5to4 2[mm],distance,position,P3 - 4to2 1[mm],distance,position,P4 - 4to2 2[mm],distance,position,P5 - 1to6 1[mm],distance,position,P6 - 1to6 2[mm],distance,position,P7 - 2to4 1[mm],distance,position,P8 - 2to4 2[mm],distance,position,P9 - 6to3 1[mm],distance,position,P10 - 6to3 2[mm],distance,position,P11 - 3to1 1[mm],distance,position,P12 - 3to1 2[mm],distance,position
+DP 0,1,0,0.261,31,1,0.138,25,1,0.2,30,2,0.1,24,2,0.2,30,3,0.1,24,3,0.2,30,4,0.1,24,4,0.2,30,5,0.1,24,5,0.2,30,6,0.1,24,6
