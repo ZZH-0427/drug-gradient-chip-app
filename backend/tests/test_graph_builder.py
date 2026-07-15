@@ -11,7 +11,10 @@ from app.schemas.forward import ForwardPredictionRequest
 def test_graph_builder_generates_expected_raw_tensors() -> None:
     builder = GraphBuilder.__new__(GraphBuilder)
     builder.edge_index = torch.tensor(
-        [[0, 1, 1, 2, 2, 3, 3, 4, 4, 5], [1, 0, 2, 1, 3, 2, 4, 3, 5, 4]],
+        [
+            [0, 1, 1, 2, 2, 3, 3, 4, 4, 5],
+            [1, 0, 2, 1, 3, 2, 4, 3, 5, 4],
+        ],
         dtype=torch.long,
     )
     builder.edge_attr = torch.zeros((10, 2), dtype=torch.float32)
@@ -39,7 +42,41 @@ def test_graph_builder_generates_expected_raw_tensors() -> None:
     assert tuple(graph.edge_index.shape) == (2, 10)
     assert tuple(graph.edge_attr.shape) == (10, 2)
     assert tuple(graph.u.shape) == (1, 2)
-    assert graph.x[:, 4].tolist() == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-    assert graph.x[:, 5].tolist() == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-    assert graph.x[:, 6].tolist() == [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-    assert graph.u.tolist() == [[1.0, 0.0]]
+
+    torch.testing.assert_close(
+        graph.x[:, 4],
+        torch.tensor(
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            dtype=graph.x.dtype,
+            device=graph.x.device,
+        ),
+    )
+
+    torch.testing.assert_close(
+        graph.x[:, 5],
+        torch.tensor(
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            dtype=graph.x.dtype,
+            device=graph.x.device,
+        ),
+    )
+
+    torch.testing.assert_close(
+        graph.x[:, 6],
+        torch.tensor(
+            [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            dtype=graph.x.dtype,
+            device=graph.x.device,
+        ),
+        rtol=1e-6,
+        atol=1e-7,
+    )
+
+    torch.testing.assert_close(
+        graph.u,
+        torch.tensor(
+            [[1.0, 0.0]],
+            dtype=graph.u.dtype,
+            device=graph.u.device,
+        ),
+    )
