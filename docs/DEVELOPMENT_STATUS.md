@@ -14,6 +14,8 @@
 - Copy and verification scripts added for local forward assets.
 - Golden CSV fixtures moved under `backend/tests/fixtures/forward`.
 - Forward prediction frontend MVP added under `frontend/`.
+- Single-port local delivery mode added through FastAPI static frontend serving.
+- Local start, stop, and status scripts added.
 
 ## Current Run Mode
 
@@ -35,10 +37,28 @@ cd frontend
 npm run dev -- --host 127.0.0.1
 ```
 
+Local delivery mode:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_local_app.ps1
+```
+
+This serves the production frontend and API together from:
+
+```text
+http://127.0.0.1:8000
+```
+
 ## Test Command
 
 ```powershell
 python -m pytest -q
+```
+
+Latest backend result:
+
+```text
+35 passed, 1 skipped
 ```
 
 The bundled golden test runs when local `.pt` assets are provisioned. External
@@ -52,6 +72,15 @@ npm run typecheck
 npm run lint
 npm run test:run
 npm run build
+```
+
+Latest frontend result:
+
+```text
+15 passed
+typecheck passed
+lint passed
+build passed
 ```
 
 ## Golden Sample
@@ -69,6 +98,8 @@ maximum absolute tolerance of `1e-6`.
 - Runtime `.pt` assets are local files ignored by Git and must be provisioned.
 - No reverse model logic exists in this stage.
 - Browser interaction is not covered by the unit test suite.
+- Windows EXE/installers, services, Docker, and cloud deployment are not
+  implemented.
 
 ## Next Steps
 

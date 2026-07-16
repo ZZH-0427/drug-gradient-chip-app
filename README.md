@@ -248,3 +248,84 @@ npm run build
 
 Use `npm ci` for clean lockfile-based validation after `package-lock.json` has
 been generated.
+
+## Local Delivery Mode
+
+For normal local use, run the single-port application from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_local_app.ps1
+```
+
+Or double-click:
+
+```text
+start_app.cmd
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000
+```
+
+The start script checks the repository layout, verifies bundled forward model
+assets, locates the `drug-chip` Conda Python, builds `frontend/dist` only when
+needed, starts one Uvicorn/FastAPI process, writes `.runtime/app-state.json`,
+and stores logs under `.runtime/logs/`.
+
+Useful commands:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\status_local_app.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stop_local_app.ps1
+```
+
+Double-click wrappers are also available:
+
+```text
+status_app.cmd
+stop_app.cmd
+```
+
+Common start options:
+
+```powershell
+.\scripts\start_local_app.ps1 -Port 8010
+.\scripts\start_local_app.ps1 -Device cpu
+.\scripts\start_local_app.ps1 -RebuildFrontend
+.\scripts\start_local_app.ps1 -NoBrowser
+.\scripts\start_local_app.ps1 -Foreground
+```
+
+In local delivery mode, FastAPI serves both `/api/v1/...` and the production
+frontend from `frontend/dist`. The app does not require Vite or port 5173 at
+runtime. `frontend/dist`, `.runtime`, logs, PID state, `.pt` files, and
+`node_modules` are local artifacts and are not committed.
+
+Troubleshooting:
+
+- If port 8000 is occupied, the start script reports the owning PID and process
+  name. It does not stop unrelated processes.
+- If model assets are missing or hashes do not match, rerun
+  `scripts/copy_forward_assets.ps1` from a trusted source and verify again.
+- If `drug-chip` cannot be found, create it from `environment-py311.yml` or pass
+  `-PythonPath` to a valid environment Python.
+- If frontend build fails, inspect npm output and rerun with `-RebuildFrontend`.
+- If status reports `stale`, run `status_local_app.ps1 -CleanStale` or
+  `stop_local_app.ps1` to clear invalid state.
+
+## Development Mode
+
+Development mode remains split across two services:
+
+```powershell
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+cd frontend
+npm run dev -- --host 127.0.0.1
+```
+
+In development, the frontend defaults to `http://127.0.0.1:8000` for API calls.
+In production builds without `VITE_API_BASE_URL`, API calls use same-origin
+relative paths such as `/api/v1/forward`. Use `FRONTEND_ORIGINS` only for the
+split development server flow.
