@@ -308,7 +308,7 @@ try {
     Remove-GeneratedCaches -Root $stageRoot
 
     Info "Packing conda environment '$CondaEnvironment'."
-    Run-Checked -FilePath $conda -Arguments @("run", "-n", $BuildToolEnvironment, "conda-pack", "-n", $CondaEnvironment, "-o", $runtimeArchive, "--force") -WorkingDirectory $root
+    Run-Checked -FilePath $conda -Arguments @("run", "-n", $BuildToolEnvironment, "conda-pack", "-n", $CondaEnvironment, "-o", $runtimeArchive, "--force", "--ignore-editable-packages") -WorkingDirectory $root
     $extractScript = Join-Path $buildRoot "extract_runtime.py"
     Write-Text -Path $extractScript -Text @'
 import pathlib
