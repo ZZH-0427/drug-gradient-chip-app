@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,104 +14,117 @@ CHECKPOINT_NAME = "best_ablation_checkpoint.pt"
 VALID_DEVICES = {"auto", "cpu", "cuda"}
 
 
+def project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
 @dataclass(frozen=True)
 class ForwardModelSettings:
-    model_source_root: Path
-    device: str = "auto"
+    asset_root: Path
+    asset_source: str
+    model_source_root: Path | None = None
+    device: str = "cpu"
     seeds: tuple[int, ...] = DEFAULT_SEEDS
     checkpoint_name: str = CHECKPOINT_NAME
 
     @classmethod
     def from_env(cls) -> "ForwardModelSettings":
-        raw_root = os.getenv("MODEL_SOURCE_ROOT", "").strip()
-        if not raw_root:
-            raise ModelRuntimeError(
-                ModelErrorCode.MODEL_SOURCE_ROOT_MISSING,
-                "MODEL_SOURCE_ROOT is not configured.",
-            )
         device = resolve_forward_model_device()
+        raw_root = os.getenv("MODEL_SOURCE_ROOT", "")
+
+        if raw_root.strip():
+            source_root = Path(raw_root.strip())
+            return cls(
+                asset_root=source_root,
+                asset_source="external",
+                model_source_root=source_root,
+                device=device,
+            )
+
         return cls(
-            model_source_root=Path(raw_root),
+            asset_root=project_root() / "model_assets" / "forward",
+            asset_source="bundled",
+            model_source_root=None,
             device=device,
         )
 
     @property
-    def forward_script_path(self) -> Path:
-        return (
-            self.model_source_root
-            / "正向预测与反向预测"
-            / "正向预测"
-            / "forward_predict.py"
-        )
+    def manifest_path(self) -> Path:
+        return self.asset_root / "manifest.json"
 
     @property
     def checkpoint_root(self) -> Path:
-        return (
-            self.model_source_root
-            / "GNN"
-            / "Physics-GNN"
-            / "model"
-            / "ablation"
-            / "data_only"
-        )
+        if self.asset_source == "external":
+            return (
+                self.asset_root
+                / "GNN"
+                / "Physics-GNN"
+                / "model"
+                / "ablation"
+                / "data_only"
+            )
+        return self.asset_root / "checkpoints"
 
     @property
     def dataset_path(self) -> Path:
-        return self.model_source_root / "GNN" / "Gnndata" / "physics_gnn_dataset.pt"
+        if self.asset_source == "external":
+            return self.asset_root / "GNN" / "Gnndata" / "physics_gnn_dataset.pt"
+        return self.asset_root / "graph_template" / "physics_gnn_dataset.pt"
 
     @property
     def dataset_summary_path(self) -> Path:
-        return (
-            self.model_source_root
-            / "GNN"
-            / "Gnndata"
-            / "physics_gnn_dataset_summary.json"
-        )
-
-    @property
-    def golden_input_path(self) -> Path:
-        return (
-            self.model_source_root
-            / "正向预测与反向预测"
-            / "正向预测"
-            / "正向预测输入"
-            / "正向预测.csv"
-        )
-
-    @property
-    def golden_output_path(self) -> Path:
-        return (
-            self.model_source_root
-            / "正向预测与反向预测"
-            / "正向预测"
-            / "正向预测结果"
-            / "forward_prediction_results.csv"
-        )
+        if self.asset_source == "external":
+            return self.asset_root / "GNN" / "Gnndata" / "physics_gnn_dataset_summary.json"
+        return self.asset_root / "graph_template" / "physics_gnn_dataset_summary.json"
 
     def checkpoint_path(self, seed: int) -> Path:
         return self.checkpoint_root / f"seed_{seed}" / self.checkpoint_name
 
     def validate_assets(self) -> None:
-        if not self.model_source_root.exists():
+        if self.asset_source not in {"bundled", "external"}:
             raise ModelRuntimeError(
-                ModelErrorCode.MODEL_SOURCE_ROOT_MISSING,
-                "MODEL_SOURCE_ROOT does not exist.",
-                {"path": str(self.model_source_root)},
+                ModelErrorCode.MODEL_CONFIGURATION_ERROR,
+                "Forward model asset source is invalid.",
             )
 
-        required = [
-            self.dataset_path,
-            self.golden_input_path,
-            self.golden_output_path,
-            self.forward_script_path,
-            *[self.checkpoint_path(seed) for seed in self.seeds],
-        ]
-        missing = [path for path in required if not path.exists()]
-        if missing:
+        if self.asset_source == "external" and not self.asset_root.exists():
+            raise ModelRuntimeError(
+                ModelErrorCode.MODEL_CONFIGURATION_ERROR,
+                "Configured external model source root does not exist.",
+                {"path": str(self.asset_root)},
+            )
+
+        if self.asset_source == "bundled" and not self.asset_root.exists():
             raise ModelRuntimeError(
                 ModelErrorCode.MODEL_ASSET_NOT_FOUND,
-                "One or more model assets were not found.",
-                {"missing": [str(path) for path in missing]},
+                "Bundled forward model assets are not provisioned.",
+                {"path": str(self.asset_root)},
+            )
+
+        required = [self.dataset_path, *[self.checkpoint_path(seed) for seed in self.seeds]]
+        missing = [path for path in required if not path.exists()]
+        empty = [path for path in required if path.exists() and path.stat().st_size <= 0]
+
+        if missing or empty:
+            raise ModelRuntimeError(
+                ModelErrorCode.MODEL_ASSET_NOT_FOUND,
+                "Forward model assets are missing or empty.",
+                {
+                    "missing": [str(path) for path in missing],
+                    "empty": [str(path) for path in empty],
+                },
+            )
+
+        if len(self.seeds) != 5 or tuple(self.seeds) != DEFAULT_SEEDS:
+            raise ModelRuntimeError(
+                ModelErrorCode.MODEL_CONFIGURATION_ERROR,
+                "Forward model seeds must be exactly 42,52,62,72,82.",
+            )
+
+        if self.asset_source == "bundled" and not self.manifest_path.exists():
+            raise ModelRuntimeError(
+                ModelErrorCode.MODEL_ASSET_NOT_FOUND,
+                "Bundled forward model manifest is missing.",
             )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -56,3 +57,76 @@ def test_settings_from_env_uses_new_device_variable(monkeypatch: pytest.MonkeyPa
 
     assert str(settings.model_source_root) == "C:\\model-root"
     assert settings.device == "cpu"
+    assert settings.asset_source == "external"
+
+
+def test_settings_uses_bundled_assets_when_model_source_root_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MODEL_SOURCE_ROOT", raising=False)
+    monkeypatch.setenv("FORWARD_MODEL_DEVICE", "cpu")
+
+    settings = ForwardModelSettings.from_env()
+
+    assert settings.asset_source == "bundled"
+    assert settings.model_source_root is None
+    assert settings.dataset_path.name == "physics_gnn_dataset.pt"
+    assert settings.dataset_path.parent.name == "graph_template"
+    assert [settings.checkpoint_path(seed).parent.name for seed in settings.seeds] == [
+        "seed_42",
+        "seed_52",
+        "seed_62",
+        "seed_72",
+        "seed_82",
+    ]
+
+
+def test_settings_uses_bundled_assets_when_model_source_root_is_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_SOURCE_ROOT", "   ")
+
+    settings = ForwardModelSettings.from_env()
+
+    assert settings.asset_source == "bundled"
+
+
+def test_settings_uses_external_assets_when_model_source_root_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_SOURCE_ROOT", "C:\\model-root")
+
+    settings = ForwardModelSettings.from_env()
+
+    assert settings.asset_source == "external"
+    assert str(settings.dataset_path) == "C:\\model-root\\GNN\\Gnndata\\physics_gnn_dataset.pt"
+    assert (
+        str(settings.checkpoint_path(42))
+        == "C:\\model-root\\GNN\\Physics-GNN\\model\\ablation\\data_only\\seed_42\\best_ablation_checkpoint.pt"
+    )
+
+
+def test_invalid_external_path_does_not_fallback_to_bundled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_SOURCE_ROOT", "Z:\\missing-model-root")
+    settings = ForwardModelSettings.from_env()
+
+    with pytest.raises(ModelRuntimeError) as exc_info:
+        settings.validate_assets()
+
+    assert settings.asset_source == "external"
+    assert exc_info.value.code == "MODEL_CONFIGURATION_ERROR"
+
+
+def test_bundled_asset_paths_do_not_depend_on_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MODEL_SOURCE_ROOT", raising=False)
+    monkeypatch.chdir(Path(__file__).resolve().parent)
+
+    settings = ForwardModelSettings.from_env()
+
+    assert settings.asset_source == "bundled"
+    assert "drug-gradient-chip-app" in str(settings.asset_root)
+    assert settings.asset_root.is_absolute()

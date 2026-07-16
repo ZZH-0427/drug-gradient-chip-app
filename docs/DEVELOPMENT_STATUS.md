@@ -2,54 +2,57 @@
 
 ## Completed
 
-- Project runtime structure created.
+- Forward model runtime structure created.
 - Forward request and response schemas added.
 - CSV adapter added for the original forward prediction table.
 - Graph builder added with centralized template dataset access.
 - `DataOnlyGNNTransformer` runtime model class added.
 - Five-seed checkpoint loader added.
 - Ensemble inference and output mapping added.
-- Unit tests and golden sample test added.
-- Project docs and configuration examples added.
+- FastAPI health, model-status, and forward routes added.
+- Bundled forward model asset layout added under `model_assets/forward`.
+- Copy and verification scripts added for local forward assets.
+- Golden CSV fixtures moved under `backend/tests/fixtures/forward`.
 
 ## Current Run Mode
 
-Configure:
+Default bundled mode:
 
 ```powershell
-$env:MODEL_SOURCE_ROOT = "D:\pytorch_geometric-master"
-$env:MODEL_DEVICE = "auto"
+Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue
+$env:FORWARD_MODEL_DEVICE = "cpu"
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Then initialize `ForwardModelAdapter` once and call `predict(request)`.
+External compatibility mode remains available by setting `MODEL_SOURCE_ROOT` to
+an old-layout model source directory.
 
 ## Test Command
 
 ```powershell
-pytest
+python -m pytest -q
 ```
 
-The golden test is skipped when `MODEL_SOURCE_ROOT` is not configured.
+The bundled golden test runs when local `.pt` assets are provisioned. External
+compatibility tests run when `MODEL_SOURCE_ROOT` is set.
 
 ## Golden Sample
 
-The golden test reads:
+The golden test reads fixture CSV files from:
 
-- `正向预测与反向预测/正向预测/正向预测输入/正向预测.csv`
-- `正向预测与反向预测/正向预测/正向预测结果/forward_prediction_results.csv`
+- `backend/tests/fixtures/forward/forward_prediction_input.csv`
+- `backend/tests/fixtures/forward/forward_prediction_expected.csv`
 
 It compares all six means, all six std values, and all five seed outputs with a
 maximum absolute tolerance of `1e-6`.
 
 ## Known Limits
 
-- Runtime dependencies must be installed by the environment owner.
-- The graph template still depends on `physics_gnn_dataset.pt`.
-- No frontend or API route exists in this stage.
+- Runtime `.pt` assets are local files ignored by Git and must be provisioned.
+- No frontend exists in this stage.
 - No reverse model logic exists in this stage.
 
 ## Next Steps
 
-- Run validation in the target Python environment.
-- If deployment should avoid carrying `physics_gnn_dataset.pt`, formally freeze
-  and audit the template edge data in application-owned configuration.
+- Decide the long-term distribution mechanism for model assets, such as a
+  controlled artifact store or release process.

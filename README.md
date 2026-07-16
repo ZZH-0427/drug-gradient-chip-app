@@ -11,31 +11,61 @@ Current scope:
 - Runtime loading of the five `data_only` checkpoints.
 - Ensemble prediction with per-seed values, mean, and population std.
 - Golden sample test against the original model output.
+- FastAPI routes for health, model status, and forward prediction.
 
 Out of scope for this stage:
 
 - Training.
 - Modifying the original model repository.
 - React frontend.
-- FastAPI routes.
 - Reverse model logic.
 - Mock prediction results.
 
+## Model Assets
+
+The API defaults to local bundled forward model assets under:
+
+```text
+model_assets/forward
+```
+
+The `.pt` files in that directory are runtime assets and are ignored by Git. A
+fresh clone must provision them before running the real model.
+
+Provision the local assets from a read-only source model directory:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\copy_forward_assets.ps1 `
+  -SourceRoot "D:\pytorch_geometric-master"
+```
+
+Verify the local copies against `model_assets/forward/manifest.json`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_forward_assets.ps1
+```
+
+`manifest.json` records expected file sizes and SHA-256 hashes. It does not
+contain source paths or machine-specific data.
+
 ## Configuration
 
-Set the original model project root with an environment variable:
+Default bundled startup does not require `MODEL_SOURCE_ROOT`:
 
 ```powershell
 conda activate drug-chip
-$env:MODEL_SOURCE_ROOT = "D:\pytorch_geometric-master"
+Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue
 $env:FORWARD_MODEL_DEVICE = "cpu"
 ```
 
 `FORWARD_MODEL_DEVICE` may be `cpu`, `cuda`, or `auto`. The default is `cpu`.
 `MODEL_DEVICE` is still accepted only as a backward-compatible fallback.
 
-The model assets remain in the external model repository. This project does not
-copy or migrate checkpoints, and reverse prediction is not implemented yet.
+`MODEL_SOURCE_ROOT` is now optional. If it is set to a non-empty value, the
+runtime strictly uses the old external model repository layout and does not fall
+back to bundled assets when the path is invalid.
+
+Reverse prediction is not implemented yet.
 
 ## Runtime Usage
 
@@ -63,8 +93,9 @@ new adapter for every prediction request.
 pytest
 ```
 
-If `MODEL_SOURCE_ROOT` is not configured, the real checkpoint golden test is
-skipped. Unit tests that do not require real checkpoints still run.
+If local `.pt` assets are present, bundled real-model tests run without
+`MODEL_SOURCE_ROOT`. External compatibility tests run when `MODEL_SOURCE_ROOT` is
+set.
 
 ## API
 
@@ -72,7 +103,7 @@ Start the API from the repository root:
 
 ```powershell
 conda activate drug-chip
-$env:MODEL_SOURCE_ROOT = "D:\pytorch_geometric-master"
+Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue
 $env:FORWARD_MODEL_DEVICE = "cpu"
 python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```

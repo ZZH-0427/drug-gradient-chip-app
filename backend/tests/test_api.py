@@ -14,6 +14,11 @@ from app.main import create_app
 from app.model_runtime.input_parser import parse_forward_csv
 from app.schemas.forward import ForwardPredictionItem, ForwardPredictionResponse
 
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "forward"
+GOLDEN_INPUT = FIXTURE_DIR / "forward_prediction_input.csv"
+GOLDEN_EXPECTED = FIXTURE_DIR / "forward_prediction_expected.csv"
+
+
 
 def sample_payload() -> dict[str, object]:
     return {
@@ -183,8 +188,8 @@ def test_inference_error_returns_stable_500_without_traceback() -> None:
 
 def test_model_load_failure_keeps_app_alive_without_exposing_local_path() -> None:
     sensitive_path = (
-        r"D:\pytorch_geometric-master\GNN\Physics-GNN\model"
-        r"\ablation\data_only\seed_42\best_ablation_checkpoint.pt"
+        r"C:\private\model-assets\checkpoints"
+        r"\seed_42\best_ablation_checkpoint.pt"
     )
 
     def factory() -> FakeForwardAdapter:
@@ -228,12 +233,11 @@ def test_model_load_failure_keeps_app_alive_without_exposing_local_path() -> Non
 
 
 @pytest.mark.skipif(
-    not os.getenv("MODEL_SOURCE_ROOT"),
-    reason="MODEL_SOURCE_ROOT is not configured; skipping real API golden test.",
+    not GOLDEN_INPUT.exists(),
+    reason="Golden fixture is not provisioned.",
 )
 def test_real_forward_api_matches_direct_adapter_golden_output() -> None:
-    settings = ForwardModelSettings.from_env()
-    request = parse_forward_csv(settings.golden_input_path)[0]
+    request = parse_forward_csv(GOLDEN_INPUT)[0]
 
     with TestClient(create_app()) as client:
         response = client.post("/api/v1/forward", json=request.model_dump())
@@ -241,7 +245,7 @@ def test_real_forward_api_matches_direct_adapter_golden_output() -> None:
     assert response.status_code == 200
     payload = response.json()
 
-    with Path(settings.golden_output_path).open(newline="", encoding="utf-8-sig") as handle:
+    with GOLDEN_EXPECTED.open(newline="", encoding="utf-8-sig") as handle:
         expected = next(csv.DictReader(handle))
 
     for item in payload["predictions"]:
