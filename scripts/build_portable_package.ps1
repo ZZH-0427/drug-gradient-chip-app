@@ -26,7 +26,11 @@ function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDi
     try {
         $display = "$FilePath $($Arguments -join ' ')"
         Info $display
-        $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+        if ($Arguments.Count -eq 0) {
+            $process = Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+        } else {
+            $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+        }
         if ($process.ExitCode -ne 0) { throw "Command failed with exit code $($process.ExitCode): $display" }
     } finally {
         foreach ($key in $Environment.Keys) {
