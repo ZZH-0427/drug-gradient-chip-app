@@ -186,6 +186,53 @@ def test_inference_error_returns_stable_500_without_traceback() -> None:
     assert "Traceback" not in response.text
 
 
+def test_default_frontend_origin_allows_cors_preflight() -> None:
+    with TestClient(create_app(load_model=False)) as client:
+        response = client.options(
+            "/api/v1/forward",
+            headers={
+                "Origin": "http://127.0.0.1:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Content-Type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert "Content-Type" in response.headers["access-control-allow-headers"]
+
+
+def test_frontend_origins_are_trimmed_and_deduplicated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "FRONTEND_ORIGINS",
+        " http://example.test:5173, ,http://example.test:5173,http://other.test ",
+    )
+
+    with TestClient(create_app(load_model=False)) as client:
+        allowed = client.options(
+            "/api/v1/health",
+            headers={
+                "Origin": "http://example.test:5173",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "Content-Type",
+            },
+        )
+        disallowed = client.options(
+            "/api/v1/health",
+            headers={
+                "Origin": "http://127.0.0.1:5173",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "Content-Type",
+            },
+        )
+
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == "http://example.test:5173"
+    assert disallowed.status_code == 400
+    assert "access-control-allow-origin" not in disallowed.headers
+
+
 def test_model_load_failure_keeps_app_alive_without_exposing_local_path() -> None:
     sensitive_path = (
         r"C:\private\model-assets\checkpoints"

@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEEDS: tuple[int, ...] = (42, 52, 62, 72, 82)
 CHECKPOINT_NAME = "best_ablation_checkpoint.pt"
 VALID_DEVICES = {"auto", "cpu", "cuda"}
+DEFAULT_FRONTEND_ORIGINS: tuple[str, ...] = (
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+)
 
 
 def project_root() -> Path:
@@ -150,3 +154,19 @@ def resolve_forward_model_device() -> str:
             {"device": device},
         )
     return device
+
+
+def resolve_frontend_origins() -> list[str]:
+    raw_origins = os.getenv("FRONTEND_ORIGINS")
+    if raw_origins is None:
+        return list(DEFAULT_FRONTEND_ORIGINS)
+
+    origins: list[str] = []
+    seen: set[str] = set()
+    for item in raw_origins.split(","):
+        origin = item.strip()
+        if not origin or origin in seen:
+            continue
+        origins.append(origin)
+        seen.add(origin)
+    return origins

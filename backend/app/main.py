@@ -6,9 +6,11 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.errors import ModelRuntimeError
+from app.core.config import resolve_frontend_origins
 from app.core.model_state import ForwardAdapterProtocol, ForwardModelState
 from app.model_runtime.forward_adapter import ForwardModelAdapter
 
@@ -60,6 +62,15 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan,
     )
+    frontend_origins = resolve_frontend_origins()
+    if frontend_origins:
+        fastapi_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=frontend_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type"],
+        )
     fastapi_app.include_router(api_router)
     return fastapi_app
 
