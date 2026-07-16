@@ -24,12 +24,19 @@ function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDi
         [Environment]::SetEnvironmentVariable($key, [string]$Environment[$key], "Process")
     }
     try {
+        $processFile = $FilePath
+        $processArgs = $Arguments
+        $extension = [System.IO.Path]::GetExtension($FilePath)
+        if ($extension -ieq ".cmd" -or $extension -ieq ".bat") {
+            $processFile = $env:ComSpec
+            $processArgs = @("/d", "/c", "call", $FilePath) + $Arguments
+        }
         $display = "$FilePath $($Arguments -join ' ')"
         Info $display
-        if ($Arguments.Count -eq 0) {
-            $process = Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+        if ($processArgs.Count -eq 0) {
+            $process = Start-Process -FilePath $processFile -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
         } else {
-            $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+            $process = Start-Process -FilePath $processFile -ArgumentList $processArgs -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
         }
         if ($process.ExitCode -ne 0) { throw "Command failed with exit code $($process.ExitCode): $display" }
     } finally {
