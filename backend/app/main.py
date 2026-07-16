@@ -45,7 +45,7 @@ def create_app(
                 logger.exception("Forward model loading failed: %s", exc)
                 app_instance.state.forward_model = ForwardModelState.not_ready(
                     code="MODEL_CONFIGURATION_ERROR",
-                    message=exc.message,
+                    message="Forward model configuration is invalid.",
                 )
             except Exception as exc:
                 logger.exception("Unexpected forward model loading failure")

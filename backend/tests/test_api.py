@@ -181,22 +181,50 @@ def test_inference_error_returns_stable_500_without_traceback() -> None:
     assert "Traceback" not in response.text
 
 
-def test_model_load_failure_keeps_app_alive_and_degraded() -> None:
+def test_model_load_failure_keeps_app_alive_without_exposing_local_path() -> None:
+    sensitive_path = (
+        r"D:\pytorch_geometric-master\GNN\Physics-GNN\model"
+        r"\ablation\data_only\seed_42\best_ablation_checkpoint.pt"
+    )
+
     def factory() -> FakeForwardAdapter:
-        raise ModelRuntimeError(ModelErrorCode.MODEL_SOURCE_ROOT_MISSING, "Missing model root.")
+        raise ModelRuntimeError(
+            ModelErrorCode.MODEL_ASSET_NOT_FOUND,
+            f"Missing model asset: {sensitive_path}",
+        )
 
     with TestClient(create_app(adapter_factory=factory)) as client:
         health = client.get("/api/v1/health")
         status = client.get("/api/v1/model-status")
+        forward = client.post("/api/v1/forward", json=sample_payload())
 
-    assert health.status_code == 200
-    assert status.status_code == 503
-    assert status.json() == {
+    expected_error = {
         "error": {
             "code": "MODEL_CONFIGURATION_ERROR",
-            "message": "Missing model root.",
+            "message": "Forward model configuration is invalid.",
         }
     }
+
+    # HTTP 服务本身仍然可用。
+    assert health.status_code == 200
+    assert health.json() == {
+        "status": "ok",
+        "service": "drug-gradient-chip-api",
+    }
+
+    # 模型状态接口返回稳定的通用错误。
+    assert status.status_code == 503
+    assert status.json() == expected_error
+
+    # 正向预测接口在模型未就绪时返回同样的通用错误。
+    assert forward.status_code == 503
+    assert forward.json() == expected_error
+
+    # 客户端响应不得暴露本地目录、checkpoint 名称或底层异常信息。
+    for response in (status, forward):
+        assert "pytorch_geometric-master" not in response.text
+        assert "best_ablation_checkpoint.pt" not in response.text
+        assert "Missing model asset" not in response.text
 
 
 @pytest.mark.skipif(
