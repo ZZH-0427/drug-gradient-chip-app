@@ -14,3 +14,10 @@ venv/
 dist/
 build/
 model_assets/forward/**/*.pt
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
