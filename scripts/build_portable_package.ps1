@@ -3,6 +3,9 @@ param(
     [string]$Version = "",
     [string]$OutputRoot = "",
     [string]$CondaEnvironment = "drug-chip",
+    [string]$RuntimeCondaEnvironment = "",
+    [ValidateSet("CUDA", "CPU")]
+    [string]$DistributionFlavor = "CUDA",
     [string]$BuildToolEnvironment = "drug-chip-portable-build",
     [switch]$SkipTests,
     [switch]$NoArchive,
@@ -121,10 +124,32 @@ function Copy-DirectoryContents([string]$Source, [string]$Destination, [string[]
 
 function Remove-GeneratedCaches([string]$Root) {
     foreach ($path in Get-ChildItem -LiteralPath $Root -Recurse -Force -Directory -ErrorAction SilentlyContinue) {
-        if ($path.Name -in @("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")) {
+        if ($path.Name -in @("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".pytest_tmp")) {
             Remove-Item -LiteralPath $path.FullName -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+    Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Include "*.pyc", "*.pyo", "*.log", "*.pid" -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+
+function Remove-ReleaseJunk([string]$PackageRoot) {
+    foreach ($relative in @(
+        ".runtime",
+        ".git",
+        ".pytest_cache",
+        ".pytest_tmp",
+        "backend\tests",
+        "frontend\node_modules",
+        "frontend\src",
+        "frontend\coverage",
+        "frontend\.vite"
+    )) {
+        $path = Join-Path $PackageRoot $relative
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+        }
+    }
+    Remove-GeneratedCaches -Root $PackageRoot
 }
 
 function Invoke-PythonScript([string]$Python, [string]$ScriptPath, [string[]]$Arguments, [string]$WorkingDirectory) {
@@ -344,23 +369,118 @@ function Assert-NoDevPaths([string]$PackageRoot, [string[]]$ForbiddenFragments) 
     }
 }
 
-function New-ZipArchive([string]$Python, [string]$SourceRoot, [string]$ZipPath, [string]$BuildRoot) {
+function Assert-ReleaseTreeClean([string]$PackageRoot) {
+    $bad = New-Object System.Collections.Generic.List[string]
+    foreach ($item in Get-ChildItem -LiteralPath $PackageRoot -Recurse -Force) {
+        $relative = $item.FullName.Substring($PackageRoot.Length).TrimStart("\", "/")
+        $parts = @($relative -split "[\\/]")
+        if ($parts -contains ".runtime") { $bad.Add($relative); continue }
+        if ($parts -contains ".git") { $bad.Add($relative); continue }
+        if ($parts -contains "__pycache__") { $bad.Add($relative); continue }
+        if ($parts -contains ".pytest_cache" -or $parts -contains ".pytest_tmp") { $bad.Add($relative); continue }
+        if ($relative -like "backend\tests*" -or $relative -like "frontend\node_modules*" -or $relative -like "frontend\src*") { $bad.Add($relative); continue }
+        if (-not $item.PSIsContainer -and ($item.Name -like "*.log" -or $item.Name -like "*.pid" -or $item.Name -like "*.pyc" -or $item.Name -eq "app-state.json" -or $item.Name -like ".env*")) {
+            $bad.Add($relative)
+        }
+    }
+    if ($bad.Count -gt 0) {
+        $sample = (($bad | Select-Object -First 20) -join "; ")
+        throw "Release package contains forbidden generated files: $sample"
+    }
+}
+
+function New-ZipArchive([string]$Python, [string]$SourceRoot, [string]$ZipPath, [string]$BuildRoot, [string]$ReportPath) {
     $script = Join-Path $BuildRoot "zip_portable.py"
     Write-Text -Path $script -Text @'
+import json
 import pathlib
 import sys
 import zipfile
 
 source = pathlib.Path(sys.argv[1]).resolve()
 zip_path = pathlib.Path(sys.argv[2]).resolve()
+report_path = pathlib.Path(sys.argv[3]).resolve()
 top = source.name
-with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
-    for path in sorted(source.rglob("*")):
+forbidden_names = {".runtime", ".git", "__pycache__", ".pytest_cache", ".pytest_tmp", "node_modules"}
+forbidden_suffixes = {".pyc", ".pyo", ".log", ".pid"}
+entries = []
+for path in sorted(source.rglob("*"), key=lambda p: p.relative_to(source).as_posix().lower()):
+    if path.is_dir():
+        continue
+    rel = path.relative_to(source)
+    parts = set(rel.parts)
+    if parts & forbidden_names:
+        raise RuntimeError(f"forbidden generated directory in archive input: {rel.as_posix()}")
+    if path.suffix.lower() in forbidden_suffixes or path.name == "app-state.json" or path.name.startswith(".env"):
+        raise RuntimeError(f"forbidden generated file in archive input: {rel.as_posix()}")
+    entries.append(path)
+
+with zipfile.ZipFile(
+    zip_path,
+    "w",
+    compression=zipfile.ZIP_DEFLATED,
+    compresslevel=9,
+    allowZip64=True,
+) as archive:
+    for path in entries:
         if path.is_dir():
             continue
         archive.write(path, pathlib.PurePosixPath(top, path.relative_to(source).as_posix()).as_posix())
+
+with zipfile.ZipFile(zip_path) as archive:
+    bad = archive.testzip()
+    if bad is not None:
+        raise RuntimeError(f"zip test failed at {bad}")
+    infos = archive.infolist()
+    raw = sum(i.file_size for i in infos)
+    compressed = sum(i.compress_size for i in infos)
+    stored = sum(1 for i in infos if i.compress_type == zipfile.ZIP_STORED)
+    deflated = sum(1 for i in infos if i.compress_type == zipfile.ZIP_DEFLATED)
+    if infos and stored == len(infos):
+        raise RuntimeError("all archive entries are ZIP_STORED")
+    ordinary = [
+        i for i in infos
+        if pathlib.PurePosixPath(i.filename).suffix.lower() in {
+            ".py", ".ps1", ".cmd", ".json", ".txt", ".html", ".js", ".css", ".csv", ".yml", ".yaml", ".md"
+        }
+    ]
+    ordinary_deflated = sum(1 for i in ordinary if i.compress_type == zipfile.ZIP_DEFLATED)
+    if ordinary and ordinary_deflated < max(1, int(len(ordinary) * 0.9)):
+        raise RuntimeError("too many ordinary text files were not deflated")
+    top_levels = {pathlib.PurePosixPath(i.filename).parts[0] for i in infos if pathlib.PurePosixPath(i.filename).parts}
+    if len(top_levels) != 1:
+        raise RuntimeError(f"archive must contain one top-level directory, found {sorted(top_levels)}")
+    top_dirs = {}
+    for i in infos:
+        parts = pathlib.PurePosixPath(i.filename).parts
+        key = parts[1] if len(parts) > 2 else (parts[1] if len(parts) > 1 else "")
+        item = top_dirs.setdefault(key, {"raw_bytes": 0, "compressed_bytes": 0, "file_count": 0})
+        item["raw_bytes"] += i.file_size
+        item["compressed_bytes"] += i.compress_size
+        item["file_count"] += 1
+    largest = sorted(
+        [{"path": i.filename, "raw_bytes": i.file_size, "compressed_bytes": i.compress_size, "compress_type": i.compress_type} for i in infos],
+        key=lambda row: row["raw_bytes"],
+        reverse=True,
+    )[:30]
+    report = {
+        "archive": str(zip_path),
+        "archive_size_bytes": zip_path.stat().st_size,
+        "raw_bytes": raw,
+        "compressed_bytes": compressed,
+        "compression_ratio": (compressed / raw) if raw else None,
+        "file_count": len(infos),
+        "deflated_entries": deflated,
+        "stored_entries": stored,
+        "top_level_directories": sorted(top_levels),
+        "top_directories": top_dirs,
+        "largest_files": largest,
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    print(json.dumps({k: report[k] for k in ["archive_size_bytes", "raw_bytes", "compressed_bytes", "compression_ratio", "file_count", "deflated_entries", "stored_entries"]}, sort_keys=True))
 '@
-    Invoke-PythonScript -Python $Python -ScriptPath $script -Arguments @($SourceRoot, $ZipPath) -WorkingDirectory $BuildRoot
+    Invoke-PythonScript -Python $Python -ScriptPath $script -Arguments @($SourceRoot, $ZipPath, $ReportPath) -WorkingDirectory $BuildRoot
 }
 
 function Expand-ZipArchiveWithPython([string]$Python, [string]$ZipPath, [string]$DestinationRoot, [string]$BuildRoot) {
@@ -384,6 +504,8 @@ try {
     $root = RepoRoot
     Assert-WindowsX64
     $appVersion = Get-AppVersion -Root $root -RequestedVersion $Version
+    $runtimeEnvironment = if ($RuntimeCondaEnvironment.Trim()) { $RuntimeCondaEnvironment.Trim() } else { $CondaEnvironment.Trim() }
+    $flavorLower = $DistributionFlavor.ToLowerInvariant()
     $output = if ($OutputRoot.Trim()) {
         if (-not (Test-Path -LiteralPath $OutputRoot)) { New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null }
         (Resolve-Path -LiteralPath $OutputRoot).Path
@@ -391,10 +513,13 @@ try {
         Join-Path $root "release"
     }
     $buildRoot = Join-Path $root ".build\portable"
-    $packageName = "DrugGradientChip-$appVersion-Windows-x64"
+    $packageSuffix = if ($DistributionFlavor -eq "CPU") { "-CPU" } else { "" }
+    $packageName = "DrugGradientChip-$appVersion-Windows-x64$packageSuffix"
     $stageRoot = Join-Path $buildRoot $packageName
-    $runtimeArchive = Join-Path $buildRoot "drug-chip-runtime.tar.gz"
+    $runtimeArchive = Join-Path $buildRoot "$runtimeEnvironment-runtime.tar.gz"
     $payloadPath = Join-Path $buildRoot "forward-payload.json"
+    $reportRoot = Join-Path $root ".build\reports"
+    $sizeReportPath = Join-Path $reportRoot "$packageName-size-report.json"
 
     Assert-CleanGit -Root $root
     Assert-FreeSpace -Path $root -RequiredBytes (8GB)
@@ -402,7 +527,7 @@ try {
     if (Test-Path -LiteralPath $buildRoot) { Remove-Item -LiteralPath $buildRoot -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
 
-    $appPython = Get-CondaPython -Name $CondaEnvironment
+    $appPython = Get-CondaPython -Name $runtimeEnvironment
     $buildPython = Get-CondaPython -Name $BuildToolEnvironment
     $conda = Get-CondaCommand
     $commit = Get-CommandOutput -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $root
@@ -436,8 +561,8 @@ try {
     }
     Remove-GeneratedCaches -Root $stageRoot
 
-    Info "Packing conda environment '$CondaEnvironment'."
-    Run-Checked -FilePath $conda -Arguments @("run", "-n", $BuildToolEnvironment, "conda-pack", "-n", $CondaEnvironment, "-o", $runtimeArchive, "--force", "--ignore-editable-packages") -WorkingDirectory $root
+    Info "Packing conda environment '$runtimeEnvironment'."
+    Run-Checked -FilePath $conda -Arguments @("run", "-n", $BuildToolEnvironment, "conda-pack", "-n", $runtimeEnvironment, "-o", $runtimeArchive, "--force", "--ignore-editable-packages") -WorkingDirectory $root
     $extractScript = Join-Path $buildRoot "extract_runtime.py"
     Write-Text -Path $extractScript -Text @'
 import pathlib
@@ -465,16 +590,20 @@ with tarfile.open(archive, "r:gz") as handle:
         schema_version = 1
         app_name = "drug-gradient-chip"
         version = $appVersion
+        git_commit = $commit
         build_commit = $commit
         source_branch = $branch
         build_time_utc = (Get-Date).ToUniversalTime().ToString("o")
         platform = "Windows-x64"
+        distribution_flavor = $flavorLower
         runtime_mode = "portable"
         python_runtime = "conda-pack"
-        source_conda_environment = $CondaEnvironment
+        source_conda_environment = $runtimeEnvironment
         build_tool_environment = $BuildToolEnvironment
         conda_pack = ($packVersion -split "`n" | Where-Object { $_ -match "^conda-pack\s+" } | Select-Object -First 1)
         default_device = "cpu"
+        inference_device_default = "cpu"
+        runtime_contains_cuda_build = ($null -ne $coreVersions.torch_cuda)
         torch_version = $coreVersions.torch
         torch_cuda_build = $coreVersions.torch_cuda
         torch_geometric_version = $coreVersions."torch-geometric"
@@ -506,7 +635,9 @@ the original ZIP again at the target location.
 "@
 
     Run-Checked -FilePath "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $stageRoot "scripts\verify_forward_assets.ps1")) -WorkingDirectory $stageRoot
-    Assert-NoDevPaths -PackageRoot $stageRoot -ForbiddenFragments @($root, (Get-CondaEnvPath -Name $CondaEnvironment), "D:\pytorch_geometric-master")
+    Remove-ReleaseJunk -PackageRoot $stageRoot
+    Assert-ReleaseTreeClean -PackageRoot $stageRoot
+    Assert-NoDevPaths -PackageRoot $stageRoot -ForbiddenFragments @($root, (Get-CondaEnvPath -Name $runtimeEnvironment), "D:\pytorch_geometric-master")
     Write-ValidationPayload -Path $payloadPath
     if (Test-Path -LiteralPath (Join-Path $stageRoot "runtime\.conda-unpacked")) {
         throw "Release source runtime must not contain a conda-unpack marker."
@@ -515,7 +646,8 @@ the original ZIP again at the target location.
     if (-not $NoArchive) {
         $zipPath = Join-Path $output "$packageName.zip"
         if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-        New-ZipArchive -Python $buildPython -SourceRoot $stageRoot -ZipPath $zipPath -BuildRoot $buildRoot
+        if (Test-Path -LiteralPath "$zipPath.sha256") { Remove-Item -LiteralPath "$zipPath.sha256" -Force }
+        New-ZipArchive -Python $buildPython -SourceRoot $stageRoot -ZipPath $zipPath -BuildRoot $buildRoot -ReportPath $sizeReportPath
         $sha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
         Write-Text -Path "$zipPath.sha256" -Text "$sha  $(Split-Path -Leaf $zipPath)"
 
