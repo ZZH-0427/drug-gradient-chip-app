@@ -123,6 +123,18 @@ function Copy-DirectoryContents([string]$Source, [string]$Destination, [string[]
 }
 
 function Remove-GeneratedCaches([string]$Root) {
+    foreach ($unpackScript in Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Filter "conda-unpack-script.py" -ErrorAction SilentlyContinue) {
+        $lines = @(Get-Content -LiteralPath $unpackScript.FullName)
+        $filtered = @(
+            foreach ($line in $lines) {
+                if ($line -match "__pycache__" -or $line -match "\.py[co]'" -or $line -match "\.log'" -or $line -match "\.pid'") { continue }
+                $line
+            }
+        )
+        if ($filtered.Count -ne $lines.Count) {
+            Set-Content -LiteralPath $unpackScript.FullName -Value $filtered -Encoding UTF8
+        }
+    }
     foreach ($path in Get-ChildItem -LiteralPath $Root -Recurse -Force -Directory -ErrorAction SilentlyContinue) {
         if ($path.Name -in @("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".pytest_tmp")) {
             Remove-Item -LiteralPath $path.FullName -Recurse -Force -ErrorAction SilentlyContinue
