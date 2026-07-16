@@ -16,6 +16,10 @@ function Info([string]$Message) { Write-Host "[info] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
 function Fail([string]$Message) { Write-Host "[error] $Message" }
 function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
+function Quote-ProcessArgument([string]$Value) {
+    if ($Value -notmatch '[\s"]') { return $Value }
+    return '"' + ($Value -replace '"', '\"') + '"'
+}
 
 function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory, [hashtable]$Environment = @{}) {
     $previous = @{}
@@ -39,7 +43,8 @@ function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDi
         } elseif ($Arguments.Count -eq 0) {
             $process = Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
         } else {
-            $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+            $nativeArguments = @($Arguments | ForEach-Object { Quote-ProcessArgument -Value $_ })
+            $process = Start-Process -FilePath $FilePath -ArgumentList $nativeArguments -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
             if ($process.ExitCode -ne 0) { throw "Command failed with exit code $($process.ExitCode): $display" }
         }
     } finally {

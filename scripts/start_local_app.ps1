@@ -24,6 +24,10 @@ function Fail([string]$Message) { Write-Host "[error] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
 function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
 function StatePath([string]$Root) { return Join-Path (Join-Path $Root ".runtime") "app-state.json" }
+function Quote-ProcessArgument([string]$Value) {
+    if ($Value -notmatch '[\s"]') { return $Value }
+    return '"' + ($Value -replace '"', '\"') + '"'
+}
 function ResolveRuntimeMode([string]$Root, [string]$RequestedMode) {
     if ($RequestedMode -ne "Auto") { return $RequestedMode.ToLowerInvariant() }
     $portablePython = Join-Path $Root "runtime\python.exe"
@@ -232,7 +236,7 @@ try {
 
     AssertPortAvailable -BindAddress $HostAddress -TargetPort $Port -StateFile $stateFile -Root $root
     Info "Verifying bundled model assets."
-    $verifyArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $root "scripts\verify_forward_assets.ps1"))
+    $verifyArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Quote-ProcessArgument -Value (Join-Path $root "scripts\verify_forward_assets.ps1")))
     $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
     if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
