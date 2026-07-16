@@ -524,7 +524,8 @@ the original ZIP again at the target location.
         $packageRootA = Join-Path $extractRootA $packageName
         Invoke-PortableFirstAndSecondStartValidation -PackageRoot $packageRootA -PayloadPath $payloadPath -Port 8000
 
-        $extractRootB = Join-Path $buildRoot "path B with spaces\Drug Gradient Chip 中文"
+        $chinesePathName = "Drug Gradient Chip " + [string][char]0x4e2d + [string][char]0x6587
+        $extractRootB = Join-Path (Join-Path $buildRoot "path B with spaces") $chinesePathName
         Expand-ZipArchiveWithPython -Python $buildPython -ZipPath $zipPath -DestinationRoot $extractRootB -BuildRoot $buildRoot
         $packageRootB = Join-Path $extractRootB $packageName
         Invoke-PortableFirstAndSecondStartValidation -PackageRoot $packageRootB -PayloadPath $payloadPath -Port 8000
