@@ -123,7 +123,7 @@ function Write-JsonFile([string]$Path, [object]$Value) {
 }
 
 function Get-CoreVersions([string]$Python, [string]$Root) {
-    $code = @"
+    $code = @'
 import importlib.metadata as m
 import json
 items = {}
@@ -138,7 +138,7 @@ try:
 except Exception:
     items["torch_cuda"] = None
 print(json.dumps(items, sort_keys=True))
-"@
+'@
     $output = & $Python -c $code
     if ($LASTEXITCODE -ne 0) { throw "Could not read core package versions." }
     return ($output -join "") | ConvertFrom-Json
