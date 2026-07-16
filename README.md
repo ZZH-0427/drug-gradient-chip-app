@@ -12,12 +12,12 @@ Current scope:
 - Ensemble prediction with per-seed values, mean, and population std.
 - Golden sample test against the original model output.
 - FastAPI routes for health, model status, and forward prediction.
+- React/Vite frontend MVP for the forward prediction workflow.
 
 Out of scope for this stage:
 
 - Training.
 - Modifying the original model repository.
-- React frontend.
 - Reverse model logic.
 - Mock prediction results.
 
@@ -64,6 +64,19 @@ $env:FORWARD_MODEL_DEVICE = "cpu"
 `MODEL_SOURCE_ROOT` is now optional. If it is set to a non-empty value, the
 runtime strictly uses the old external model repository layout and does not fall
 back to bundled assets when the path is invalid.
+
+The backend CORS allow-list is configured by `FRONTEND_ORIGINS`. The default
+allows local Vite development:
+
+```powershell
+$env:FRONTEND_ORIGINS = "http://127.0.0.1:5173,http://localhost:5173"
+```
+
+The frontend reads `VITE_API_BASE_URL`; the default development value is:
+
+```text
+http://127.0.0.1:8000
+```
 
 Reverse prediction is not implemented yet.
 
@@ -197,3 +210,41 @@ Invoke-RestMethod `
   -ContentType "application/json" `
   -Body $body
 ```
+
+## Frontend
+
+Install frontend dependencies from the frontend project only:
+
+```powershell
+cd frontend
+npm install
+```
+
+Start Vite:
+
+```powershell
+npm run dev -- --host 127.0.0.1
+```
+
+Frontend URL:
+
+```text
+http://127.0.0.1:5173
+```
+
+The forward page checks `/api/v1/model-status`, validates six fixed chip
+positions, confirms parameters, and calls `/api/v1/forward`. The reverse page is
+a placeholder because the reverse model is not integrated.
+
+Frontend verification commands:
+
+```powershell
+cd frontend
+npm run typecheck
+npm run lint
+npm run test:run
+npm run build
+```
+
+Use `npm ci` for clean lockfile-based validation after `package-lock.json` has
+been generated.

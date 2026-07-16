@@ -13,6 +13,7 @@
 - Bundled forward model asset layout added under `model_assets/forward`.
 - Copy and verification scripts added for local forward assets.
 - Golden CSV fixtures moved under `backend/tests/fixtures/forward`.
+- Forward prediction frontend MVP added under `frontend/`.
 
 ## Current Run Mode
 
@@ -27,6 +28,13 @@ python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 External compatibility mode remains available by setting `MODEL_SOURCE_ROOT` to
 an old-layout model source directory.
 
+Frontend development mode:
+
+```powershell
+cd frontend
+npm run dev -- --host 127.0.0.1
+```
+
 ## Test Command
 
 ```powershell
@@ -35,6 +43,16 @@ python -m pytest -q
 
 The bundled golden test runs when local `.pt` assets are provisioned. External
 compatibility tests run when `MODEL_SOURCE_ROOT` is set.
+
+Frontend checks:
+
+```powershell
+cd frontend
+npm run typecheck
+npm run lint
+npm run test:run
+npm run build
+```
 
 ## Golden Sample
 
@@ -49,10 +67,11 @@ maximum absolute tolerance of `1e-6`.
 ## Known Limits
 
 - Runtime `.pt` assets are local files ignored by Git and must be provisioned.
-- No frontend exists in this stage.
 - No reverse model logic exists in this stage.
+- Browser interaction is not covered by the unit test suite.
 
 ## Next Steps
 
 - Decide the long-term distribution mechanism for model assets, such as a
   controlled artifact store or release process.
+- Integrate the reverse model when its runtime contract is available.
