@@ -213,14 +213,31 @@ function Get-RuntimePackageAudit([string]$Python, [string]$WorkingDirectory) {
 
 function Remove-EditableAppInstall([string]$RuntimeRoot) {
     $sitePackages = Join-Path $RuntimeRoot "Lib\site-packages"
-    if (-not (Test-Path -LiteralPath $sitePackages)) { return }
-    foreach ($pattern in @(
+    $unpackScript = Join-Path $RuntimeRoot "Scripts\conda-unpack-script.py"
+    $patterns = @(
         "__editable__.drug_gradient_chip_app-*.pth",
         "__editable___drug_gradient_chip_app_*.py",
         "drug_gradient_chip_app-*.dist-info"
-    )) {
-        Get-ChildItem -LiteralPath $sitePackages -Force -Filter $pattern -ErrorAction SilentlyContinue |
-            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }
+    )
+
+    if (Test-Path -LiteralPath $unpackScript) {
+        $lines = @(Get-Content -LiteralPath $unpackScript)
+        $filtered = @(
+            foreach ($line in $lines) {
+                if ($line -match "drug_gradient_chip_app" -or $line -match "__editable___drug_gradient_chip_app") { continue }
+                $line
+            }
+        )
+        if ($filtered.Count -ne $lines.Count) {
+            Set-Content -LiteralPath $unpackScript -Value $filtered -Encoding UTF8
+        }
+    }
+
+    if (Test-Path -LiteralPath $sitePackages) {
+        foreach ($pattern in $patterns) {
+            Get-ChildItem -LiteralPath $sitePackages -Force -Filter $pattern -ErrorAction SilentlyContinue |
+                ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }
+        }
     }
 }
 
@@ -440,6 +457,7 @@ with tarfile.open(archive, "r:gz") as handle:
     if (-not (Test-Path -LiteralPath (Join-Path $stageRoot "runtime\Scripts\conda-unpack.exe"))) {
         throw "Portable runtime conda-unpack.exe was not extracted."
     }
+    Remove-EditableAppInstall -RuntimeRoot (Join-Path $stageRoot "runtime")
     $runtimePackages = Get-RuntimePackageAudit -Python $appPython -WorkingDirectory $root
     Write-Text -Path (Join-Path $stageRoot "runtime-packages.txt") -Text $runtimePackages
 
