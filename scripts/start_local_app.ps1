@@ -243,6 +243,10 @@ try {
     $originalPythonNoUserSite = if ($hadPythonNoUserSite) { $env:PYTHONNOUSERSITE } else { $null }
     $hadPythonUtf8 = Test-Path Env:PYTHONUTF8
     $originalPythonUtf8 = if ($hadPythonUtf8) { $env:PYTHONUTF8 } else { $null }
+    $hadPythonPath = Test-Path Env:PYTHONPATH
+    $originalPythonPath = if ($hadPythonPath) { $env:PYTHONPATH } else { $null }
+    $backendPath = Join-Path $root "backend"
+    $env:PYTHONPATH = if ($hadPythonPath -and $originalPythonPath.Trim()) { "$backendPath;$originalPythonPath" } else { $backendPath }
 
     if ($resolvedRuntimeMode -eq "portable") {
         AssertPortableLayout -Root $root
@@ -307,6 +311,7 @@ try {
         if ($hadModelSourceRoot) { $env:MODEL_SOURCE_ROOT = $originalModelSourceRoot } else { Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue }
         if ($hadPythonNoUserSite) { $env:PYTHONNOUSERSITE = $originalPythonNoUserSite } else { Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue }
         if ($hadPythonUtf8) { $env:PYTHONUTF8 = $originalPythonUtf8 } else { Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue }
+        if ($hadPythonPath) { $env:PYTHONPATH = $originalPythonPath } else { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
     }
     exit 0
 } catch {
@@ -322,6 +327,9 @@ try {
             if (Get-Variable -Name hadPythonUtf8 -ErrorAction SilentlyContinue) {
                 if ($hadPythonUtf8) { $env:PYTHONUTF8 = $originalPythonUtf8 } else { Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue }
             }
+        }
+        if (Get-Variable -Name hadPythonPath -ErrorAction SilentlyContinue) {
+            if ($hadPythonPath) { $env:PYTHONPATH = $originalPythonPath } else { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
         }
     }
     Fail $_.Exception.Message
