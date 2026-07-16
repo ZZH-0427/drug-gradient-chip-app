@@ -130,7 +130,7 @@ function ConvertTo-PythonCharExpression([string]$Value) {
 function Protect-CondaUnpackPlaceholderText([string]$Root) {
     foreach ($unpackScript in Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Filter "conda-unpack-script.py" -ErrorAction SilentlyContinue) {
         $text = Get-Content -LiteralPath $unpackScript.FullName -Raw
-        $matches = [regex]::Matches($text, "'[A-Za-z]:\\\\[^']+'")
+        $matches = [regex]::Matches($text, "'[A-Za-z]:[\\/][^']+'")
         if ($matches.Count -eq 0) { continue }
 
         $replacements = [ordered]@{}
