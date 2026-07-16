@@ -16,9 +16,6 @@ function Info([string]$Message) { Write-Host "[info] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
 function Fail([string]$Message) { Write-Host "[error] $Message" }
 function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
-function Quote-CmdArgument([string]$Value) {
-    return '"' + ($Value -replace '"', '\"') + '"'
-}
 
 function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory, [hashtable]$Environment = @{}) {
     $previous = @{}
@@ -27,25 +24,24 @@ function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDi
         [Environment]::SetEnvironmentVariable($key, [string]$Environment[$key], "Process")
     }
     try {
-        $processFile = $FilePath
-        $processArgs = $Arguments
         $extension = [System.IO.Path]::GetExtension($FilePath)
-        if ($extension -ieq ".cmd" -or $extension -ieq ".bat") {
-            $processFile = $env:ComSpec
-            $commandLine = "call $(Quote-CmdArgument -Value $FilePath)"
-            foreach ($arg in $Arguments) {
-                $commandLine = "$commandLine $(Quote-CmdArgument -Value $arg)"
-            }
-            $processArgs = @("/d", "/s", "/c", $commandLine)
-        }
         $display = "$FilePath $($Arguments -join ' ')"
         Info $display
-        if ($processArgs.Count -eq 0) {
-            $process = Start-Process -FilePath $processFile -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+        if ($extension -ieq ".cmd" -or $extension -ieq ".bat") {
+            Push-Location -LiteralPath $WorkingDirectory
+            try {
+                & $FilePath @Arguments
+                $exitCode = $LASTEXITCODE
+            } finally {
+                Pop-Location
+            }
+            if ($exitCode -ne 0) { throw "Command failed with exit code ${exitCode}: $display" }
+        } elseif ($Arguments.Count -eq 0) {
+            $process = Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
         } else {
-            $process = Start-Process -FilePath $processFile -ArgumentList $processArgs -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+            $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
+            if ($process.ExitCode -ne 0) { throw "Command failed with exit code $($process.ExitCode): $display" }
         }
-        if ($process.ExitCode -ne 0) { throw "Command failed with exit code $($process.ExitCode): $display" }
     } finally {
         foreach ($key in $Environment.Keys) {
             [Environment]::SetEnvironmentVariable($key, $previous[$key], "Process")
