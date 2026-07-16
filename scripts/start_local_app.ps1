@@ -145,6 +145,7 @@ function EnsurePortableRuntimeReady([string]$Root, [string]$LogsDir) {
         ShowCondaUnpackLogTail -StdoutLog $stdoutLog -StderrLog $stderrLog
         throw "Portable runtime relocation failed with exit code $($process.ExitCode)."
     }
+    Remove-EditableAppInstall -RuntimeRoot $runtimeRoot
     Write-JsonAtomically -Path $marker -Value ([ordered]@{
         schema_version = 1
         application_root = $applicationRoot
@@ -152,6 +153,18 @@ function EnsurePortableRuntimeReady([string]$Root, [string]$LogsDir) {
         completed_at = (Get-Date).ToUniversalTime().ToString("o")
     })
     Info "Portable runtime relocation completed."
+}
+function Remove-EditableAppInstall([string]$RuntimeRoot) {
+    $sitePackages = Join-Path $RuntimeRoot "Lib\site-packages"
+    if (-not (Test-Path -LiteralPath $sitePackages)) { return }
+    foreach ($pattern in @(
+        "__editable__.drug_gradient_chip_app-*.pth",
+        "__editable___drug_gradient_chip_app_*.py",
+        "drug_gradient_chip_app-*.dist-info"
+    )) {
+        Get-ChildItem -LiteralPath $sitePackages -Force -Filter $pattern -ErrorAction SilentlyContinue |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }
+    }
 }
 function AssertPortAvailable([string]$BindAddress, [int]$TargetPort, [string]$StateFile, [string]$Root) {
     $state = ReadState -Path $StateFile

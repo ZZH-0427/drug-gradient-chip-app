@@ -435,8 +435,6 @@ with tarfile.open(archive, "r:gz") as handle:
 '@
     Invoke-PythonScript -Python $buildPython -ScriptPath $extractScript -Arguments @($runtimeArchive, (Join-Path $stageRoot "runtime")) -WorkingDirectory $buildRoot
 
-    Remove-EditableAppInstall -RuntimeRoot (Join-Path $stageRoot "runtime")
-
     $runtimePython = Join-Path $stageRoot "runtime\python.exe"
     if (-not (Test-Path -LiteralPath $runtimePython)) { throw "Portable runtime python.exe was not extracted." }
     if (-not (Test-Path -LiteralPath (Join-Path $stageRoot "runtime\Scripts\conda-unpack.exe"))) {
