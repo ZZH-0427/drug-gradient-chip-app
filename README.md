@@ -323,16 +323,37 @@ Build a self-contained Windows x64 package from a clean Git working tree:
 powershell -ExecutionPolicy Bypass -File .\scripts\build_portable_package.ps1
 ```
 
+Build the CPU-only distribution from the isolated CPU runtime environment:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_portable_package.ps1 `
+  -RuntimeCondaEnvironment drug-chip-portable-cpu `
+  -DistributionFlavor CPU
+```
+
 The build script uses `conda-pack` only from the separate local build-tool
 environment `drug-chip-portable-build`. It does not install `conda-pack` into
 `drug-chip`, does not modify application dependencies, and does not include the
 build-tool environment in the package.
+
+The CPU runtime environment is defined in `environment-portable-cpu.yml`. It uses
+the official PyTorch CPU wheel and PyG CPU wheels; `torch.version.cuda` is
+`None`, `torch.cuda.is_available()` is `False`, and the CPU package audit checks
+that CUDA runtime DLLs such as `torch_cuda.dll`, `cublas*.dll`, `cudnn*.dll`,
+`cusparse*.dll`, `cufft*.dll`, and `cusolver*.dll` are absent.
 
 Default output:
 
 ```text
 release/DrugGradientChip-<version>-Windows-x64.zip
 release/DrugGradientChip-<version>-Windows-x64.zip.sha256
+```
+
+CPU output:
+
+```text
+release/DrugGradientChip-<version>-Windows-x64-CPU.zip
+release/DrugGradientChip-<version>-Windows-x64-CPU.zip.sha256
 ```
 
 The ZIP contains:
@@ -342,6 +363,11 @@ The ZIP contains:
 - `frontend/dist/` production assets.
 - `model_assets/forward/` including the bundled model binaries.
 - `BUILD_INFO.json`, `VERSION`, `README.txt`, and `runtime-packages.txt`.
+
+Release archives are written with ZIP64 and `ZIP_DEFLATED` compression. The
+archive audit rejects generated runtime state, logs, PID files, Python bytecode,
+Git metadata, frontend source files, backend tests, and development-machine path
+fragments. Build size diagnostics are written under `.build/reports/`.
 
 On an end-user Windows machine, extract the ZIP and run:
 
@@ -369,6 +395,18 @@ and a path containing spaces and non-ASCII characters, then verifies that moving
 an already initialized directory is rejected. If `conda-pack` relocation fails,
 do not replace it with a raw Conda environment copy; keep the diagnostics and
 investigate the relocation failure.
+
+Prediction parity between the CUDA development environment running on CPU and
+the CPU-only runtime can be checked with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\compare_runtime_predictions.ps1
+```
+
+This compares three payloads across all ensemble seeds, prediction means, and
+population standard deviations with a default tolerance of `1e-6`. A truly clean
+Windows machine test without system Python, Conda, or Node.js still requires
+separate manual execution on such a machine.
 
 ## Development Mode
 
