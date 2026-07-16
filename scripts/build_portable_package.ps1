@@ -270,7 +270,7 @@ import zipfile
 source = pathlib.Path(sys.argv[1]).resolve()
 zip_path = pathlib.Path(sys.argv[2]).resolve()
 top = source.name
-with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
     for path in sorted(source.rglob("*")):
         if path.is_dir():
             continue
