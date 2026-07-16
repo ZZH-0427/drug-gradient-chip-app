@@ -196,6 +196,19 @@ function Get-RuntimePackageAudit([string]$Python, [string]$WorkingDirectory) {
     return ($lines -join [Environment]::NewLine)
 }
 
+function Remove-EditableAppInstall([string]$RuntimeRoot) {
+    $sitePackages = Join-Path $RuntimeRoot "Lib\site-packages"
+    if (-not (Test-Path -LiteralPath $sitePackages)) { return }
+    foreach ($pattern in @(
+        "__editable__.drug_gradient_chip_app-*.pth",
+        "__editable___drug_gradient_chip_app_*.py",
+        "drug_gradient_chip_app-*.dist-info"
+    )) {
+        Get-ChildItem -LiteralPath $sitePackages -Force -Filter $pattern -ErrorAction SilentlyContinue |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }
+    }
+}
+
 function Invoke-HttpValidation([string]$Url, [string]$PayloadPath) {
     $health = Invoke-RestMethod -Method Get -Uri "$Url/api/v1/health" -TimeoutSec 10
     if ($health.status -ne "ok") { throw "Health endpoint returned an unexpected response." }
@@ -344,6 +357,7 @@ with tarfile.open(archive, "r:gz") as handle:
     } else {
         Warn "conda-unpack.exe was not found; continuing only if runtime validation succeeds."
     }
+    Remove-EditableAppInstall -RuntimeRoot (Join-Path $stageRoot "runtime")
 
     $runtimePython = Join-Path $stageRoot "runtime\python.exe"
     Run-Checked -FilePath $runtimePython -Arguments @("--version") -WorkingDirectory $stageRoot
