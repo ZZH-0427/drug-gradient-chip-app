@@ -128,7 +128,8 @@ function Remove-GeneratedCaches([string]$Root) {
             Remove-Item -LiteralPath $path.FullName -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Include "*.pyc", "*.pyo", "*.log", "*.pid" -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $Root -Recurse -Force -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "*.pyc" -or $_.Name -like "*.pyo" -or $_.Name -like "*.log" -or $_.Name -like "*.pid" } |
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
 }
 
