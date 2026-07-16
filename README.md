@@ -315,6 +315,55 @@ Troubleshooting:
 - If status reports `stale`, run `status_local_app.ps1 -CleanStale` or
   `stop_local_app.ps1` to clear invalid state.
 
+## Windows Portable Package
+
+Build a self-contained Windows x64 package from a clean Git working tree:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_portable_package.ps1
+```
+
+The build script uses `conda-pack` only from the separate local build-tool
+environment `drug-chip-portable-build`. It does not install `conda-pack` into
+`drug-chip`, does not modify application dependencies, and does not include the
+build-tool environment in the package.
+
+Default output:
+
+```text
+release/DrugGradientChip-<version>-Windows-x64.zip
+release/DrugGradientChip-<version>-Windows-x64.zip.sha256
+```
+
+The ZIP contains:
+
+- `runtime/` packed from the existing `drug-chip` Conda environment.
+- `backend/app/`, lifecycle scripts, and `.cmd` wrappers.
+- `frontend/dist/` production assets.
+- `model_assets/forward/` including the bundled model binaries.
+- `BUILD_INFO.json`, `VERSION`, `README.txt`, and `runtime-packages.txt`.
+
+On an end-user Windows machine, extract the ZIP and run:
+
+```text
+start_app.cmd
+status_app.cmd
+stop_app.cmd
+```
+
+The portable package does not require Conda, Python, Node.js, npm, Vite, or the
+original model repository. Portable startup detects `runtime/python.exe` and
+`BUILD_INFO.json`, uses CPU by default, serves the bundled `frontend/dist`, and
+forces bundled model assets for the child Uvicorn process even if
+`MODEL_SOURCE_ROOT` exists in the parent shell.
+
+The build script validates the package by starting it without Vite, checking
+`/`, `/forward`, `/reverse`, `/api/v1/health`, `/api/v1/model-status`, and a real
+`/api/v1/forward` request. It also verifies relocation by copying the package to
+a path containing spaces and non-ASCII characters, and validates a fresh ZIP
+extraction. If `conda-pack` relocation fails, do not replace it with a raw Conda
+environment copy; keep the diagnostics and investigate the relocation failure.
+
 ## Development Mode
 
 Development mode remains split across two services:
