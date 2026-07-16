@@ -122,6 +122,32 @@ function Copy-DirectoryContents([string]$Source, [string]$Destination, [string[]
     }
 }
 
+function ConvertTo-PythonCharExpression([string]$Value) {
+    $codes = [int[]][char[]]$Value
+    return "''.join(chr(c) for c in ($($codes -join ', '),))"
+}
+
+function Protect-CondaUnpackPlaceholderText([string]$Root) {
+    foreach ($unpackScript in Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Filter "conda-unpack-script.py" -ErrorAction SilentlyContinue) {
+        $text = Get-Content -LiteralPath $unpackScript.FullName -Raw
+        $matches = [regex]::Matches($text, "'[A-Za-z]:\\\\[^']+'")
+        if ($matches.Count -eq 0) { continue }
+
+        $replacements = [ordered]@{}
+        foreach ($match in $matches) {
+            if ($replacements.Contains($match.Value)) { continue }
+            $literalValue = $match.Value.Substring(1, $match.Value.Length - 2).Replace("\\", "\")
+            $variableName = "_portable_prefix_placeholder_$($replacements.Count)"
+            $replacements[$match.Value] = $variableName
+            $expression = ConvertTo-PythonCharExpression -Value $literalValue
+            $text = $text -replace [regex]::Escape($match.Value), $variableName
+            $definition = "$variableName = $expression`n"
+            $text = $text -replace "_prefix_records = \[", "$definition`n_prefix_records = ["
+        }
+        Set-Content -LiteralPath $unpackScript.FullName -Value $text -Encoding UTF8
+    }
+}
+
 function Remove-GeneratedCaches([string]$Root) {
     foreach ($unpackScript in Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Filter "conda-unpack-script.py" -ErrorAction SilentlyContinue) {
         $lines = @(Get-Content -LiteralPath $unpackScript.FullName)
@@ -135,6 +161,7 @@ function Remove-GeneratedCaches([string]$Root) {
             Set-Content -LiteralPath $unpackScript.FullName -Value $filtered -Encoding UTF8
         }
     }
+    Protect-CondaUnpackPlaceholderText -Root $Root
     foreach ($path in Get-ChildItem -LiteralPath $Root -Recurse -Force -Directory -ErrorAction SilentlyContinue) {
         if ($path.Name -in @("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".pytest_tmp")) {
             Remove-Item -LiteralPath $path.FullName -Recurse -Force -ErrorAction SilentlyContinue
