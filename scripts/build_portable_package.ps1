@@ -16,6 +16,9 @@ function Info([string]$Message) { Write-Host "[info] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
 function Fail([string]$Message) { Write-Host "[error] $Message" }
 function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
+function Quote-CmdArgument([string]$Value) {
+    return '"' + ($Value -replace '"', '\"') + '"'
+}
 
 function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory, [hashtable]$Environment = @{}) {
     $previous = @{}
@@ -29,7 +32,11 @@ function Run-Checked([string]$FilePath, [string[]]$Arguments, [string]$WorkingDi
         $extension = [System.IO.Path]::GetExtension($FilePath)
         if ($extension -ieq ".cmd" -or $extension -ieq ".bat") {
             $processFile = $env:ComSpec
-            $processArgs = @("/d", "/c", "call", $FilePath) + $Arguments
+            $commandLine = "call $(Quote-CmdArgument -Value $FilePath)"
+            foreach ($arg in $Arguments) {
+                $commandLine = "$commandLine $(Quote-CmdArgument -Value $arg)"
+            }
+            $processArgs = @("/d", "/s", "/c", $commandLine)
         }
         $display = "$FilePath $($Arguments -join ' ')"
         Info $display
