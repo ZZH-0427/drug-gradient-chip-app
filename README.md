@@ -357,12 +357,18 @@ original model repository. Portable startup detects `runtime/python.exe` and
 forces bundled model assets for the child Uvicorn process even if
 `MODEL_SOURCE_ROOT` exists in the parent shell.
 
+On first start after extraction, the portable launcher runs the bundled
+`runtime\Scripts\conda-unpack.exe` once in that final directory and writes
+`runtime\.conda-unpacked`. Do not move a directory after it has been started. To
+migrate the application, extract the original ZIP again at the target location.
+
 The build script validates the package by starting it without Vite, checking
 `/`, `/forward`, `/reverse`, `/api/v1/health`, `/api/v1/model-status`, and a real
-`/api/v1/forward` request. It also verifies relocation by copying the package to
-a path containing spaces and non-ASCII characters, and validates a fresh ZIP
-extraction. If `conda-pack` relocation fails, do not replace it with a raw Conda
-environment copy; keep the diagnostics and investigate the relocation failure.
+`/api/v1/forward` request. It validates fresh ZIP extractions in a normal path
+and a path containing spaces and non-ASCII characters, then verifies that moving
+an already initialized directory is rejected. If `conda-pack` relocation fails,
+do not replace it with a raw Conda environment copy; keep the diagnostics and
+investigate the relocation failure.
 
 ## Development Mode
 

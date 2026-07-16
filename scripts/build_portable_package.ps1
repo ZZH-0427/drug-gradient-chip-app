@@ -262,6 +262,58 @@ function Invoke-PortableLifecycleValidation([string]$PackageRoot, [string]$Paylo
     }
 }
 
+function Invoke-PortableStart([string]$PackageRoot, [int]$Port) {
+    Run-Checked -FilePath (Join-Path $PackageRoot "start_app.cmd") -Arguments @("-NoBrowser", "-Port", [string]$Port, "-StartupTimeoutSeconds", "180") -WorkingDirectory $PackageRoot
+}
+
+function Invoke-PortableStop([string]$PackageRoot) {
+    Run-Checked -FilePath (Join-Path $PackageRoot "stop_app.cmd") -Arguments @() -WorkingDirectory $PackageRoot
+}
+
+function Assert-RuntimeMarker([string]$PackageRoot) {
+    $marker = Join-Path $PackageRoot "runtime\.conda-unpacked"
+    if (-not (Test-Path -LiteralPath $marker)) { throw "Portable runtime marker was not created: $marker" }
+    $payload = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
+    $applicationRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
+    $runtimeRoot = (Resolve-Path -LiteralPath (Join-Path $PackageRoot "runtime")).Path
+    if ([string]$payload.application_root -ne $applicationRoot -or [string]$payload.runtime_root -ne $runtimeRoot) {
+        throw "Portable runtime marker does not match this package root."
+    }
+}
+
+function Invoke-PortableFirstAndSecondStartValidation([string]$PackageRoot, [string]$PayloadPath, [int]$Port) {
+    $marker = Join-Path $PackageRoot "runtime\.conda-unpacked"
+    if (Test-Path -LiteralPath $marker) { throw "Portable runtime marker exists before first start: $marker" }
+    try {
+        Invoke-PortableStart -PackageRoot $PackageRoot -Port $Port
+        Assert-RuntimeMarker -PackageRoot $PackageRoot
+        Invoke-HttpValidation -Url "http://127.0.0.1:$Port" -PayloadPath $PayloadPath
+        Invoke-PortableStop -PackageRoot $PackageRoot
+
+        $firstMarker = Get-Content -LiteralPath $marker -Raw
+        Invoke-PortableStart -PackageRoot $PackageRoot -Port $Port
+        $secondMarker = Get-Content -LiteralPath $marker -Raw
+        if ($secondMarker -ne $firstMarker) { throw "Portable runtime marker changed on second start." }
+        Invoke-HttpValidation -Url "http://127.0.0.1:$Port" -PayloadPath $PayloadPath
+        Invoke-PortableStop -PackageRoot $PackageRoot
+    } finally {
+        & (Join-Path $PackageRoot "stop_app.cmd") | Out-Null
+    }
+}
+
+function Assert-MovedInitializedPackageRefusesStart([string]$PackageRoot, [int]$Port) {
+    $start = Join-Path $PackageRoot "start_app.cmd"
+    Push-Location -LiteralPath $PackageRoot
+    try {
+        & $start -NoBrowser -Port $Port -StartupTimeoutSeconds 30
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+        & (Join-Path $PackageRoot "stop_app.cmd") | Out-Null
+    }
+    if ($exitCode -eq 0) { throw "Moved initialized portable package started successfully; expected refusal." }
+}
+
 function Assert-NoDevPaths([string]$PackageRoot, [string[]]$ForbiddenFragments) {
     $extensions = @(".ps1", ".cmd", ".json", ".txt", ".html", ".js", ".css", ".py", ".pth", ".ini", ".cfg")
     foreach ($file in Get-ChildItem -LiteralPath $PackageRoot -Recurse -File -Force) {
@@ -292,6 +344,23 @@ with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=T
         archive.write(path, pathlib.PurePosixPath(top, path.relative_to(source).as_posix()).as_posix())
 '@
     Invoke-PythonScript -Python $Python -ScriptPath $script -Arguments @($SourceRoot, $ZipPath) -WorkingDirectory $BuildRoot
+}
+
+function Expand-ZipArchiveWithPython([string]$Python, [string]$ZipPath, [string]$DestinationRoot, [string]$BuildRoot) {
+    if (Test-Path -LiteralPath $DestinationRoot) { Remove-Item -LiteralPath $DestinationRoot -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $DestinationRoot | Out-Null
+    $script = Join-Path $BuildRoot "unzip_portable.py"
+    Write-Text -Path $script -Text @'
+import pathlib
+import sys
+import zipfile
+
+zip_path = pathlib.Path(sys.argv[1]).resolve()
+target = pathlib.Path(sys.argv[2]).resolve()
+with zipfile.ZipFile(zip_path) as archive:
+    archive.extractall(target)
+'@
+    Invoke-PythonScript -Python $Python -ScriptPath $script -Arguments @($ZipPath, $DestinationRoot) -WorkingDirectory $BuildRoot
 }
 
 try {
@@ -366,17 +435,14 @@ with tarfile.open(archive, "r:gz") as handle:
 '@
     Invoke-PythonScript -Python $buildPython -ScriptPath $extractScript -Arguments @($runtimeArchive, (Join-Path $stageRoot "runtime")) -WorkingDirectory $buildRoot
 
-    $condaUnpack = Join-Path $stageRoot "runtime\Scripts\conda-unpack.exe"
-    if (Test-Path -LiteralPath $condaUnpack) {
-        Run-Checked -FilePath $condaUnpack -Arguments @() -WorkingDirectory $stageRoot
-    } else {
-        Warn "conda-unpack.exe was not found; continuing only if runtime validation succeeds."
-    }
     Remove-EditableAppInstall -RuntimeRoot (Join-Path $stageRoot "runtime")
 
     $runtimePython = Join-Path $stageRoot "runtime\python.exe"
-    Run-Checked -FilePath $runtimePython -Arguments @("--version") -WorkingDirectory $stageRoot
-    $runtimePackages = Get-RuntimePackageAudit -Python $runtimePython -WorkingDirectory $stageRoot
+    if (-not (Test-Path -LiteralPath $runtimePython)) { throw "Portable runtime python.exe was not extracted." }
+    if (-not (Test-Path -LiteralPath (Join-Path $stageRoot "runtime\Scripts\conda-unpack.exe"))) {
+        throw "Portable runtime conda-unpack.exe was not extracted."
+    }
+    $runtimePackages = Get-RuntimePackageAudit -Python $appPython -WorkingDirectory $root
     Write-Text -Path (Join-Path $stageRoot "runtime-packages.txt") -Text $runtimePackages
 
     $buildInfo = [ordered]@{
@@ -418,17 +484,17 @@ Stop:
 This package contains its own Python runtime and bundled forward model assets.
 End users do not need Conda, Python, Node.js, npm, or the original model repository.
 Portable mode always uses bundled assets and CPU by default.
+On first start, the package relocates its runtime for the current directory.
+Do not move a directory after it has been started. To migrate the app, extract
+the original ZIP again at the target location.
 "@
 
     Run-Checked -FilePath "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $stageRoot "scripts\verify_forward_assets.ps1")) -WorkingDirectory $stageRoot
     Assert-NoDevPaths -PackageRoot $stageRoot -ForbiddenFragments @($root, (Get-CondaEnvPath -Name $CondaEnvironment), "D:\pytorch_geometric-master")
     Write-ValidationPayload -Path $payloadPath
-    Invoke-PortableLifecycleValidation -PackageRoot $stageRoot -PayloadPath $payloadPath -Port 8000
-
-    $relocatedRoot = Join-Path $buildRoot "relocation test\Drug Gradient Chip 药物芯片"
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $relocatedRoot) | Out-Null
-    Copy-Item -LiteralPath $stageRoot -Destination $relocatedRoot -Recurse -Force
-    Invoke-PortableLifecycleValidation -PackageRoot $relocatedRoot -PayloadPath $payloadPath -Port 8000
+    if (Test-Path -LiteralPath (Join-Path $stageRoot "runtime\.conda-unpacked")) {
+        throw "Release source runtime must not contain a conda-unpack marker."
+    }
 
     if (-not $NoArchive) {
         $zipPath = Join-Path $output "$packageName.zip"
@@ -437,21 +503,22 @@ Portable mode always uses bundled assets and CPU by default.
         $sha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
         Write-Text -Path "$zipPath.sha256" -Text "$sha  $(Split-Path -Leaf $zipPath)"
 
-        $extractRoot = Join-Path $buildRoot "zip extract"
-        New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
-        $unzipScript = Join-Path $buildRoot "unzip_portable.py"
-        Write-Text -Path $unzipScript -Text @'
-import pathlib
-import sys
-import zipfile
+        $extractRootA = Join-Path $buildRoot "path A"
+        Expand-ZipArchiveWithPython -Python $buildPython -ZipPath $zipPath -DestinationRoot $extractRootA -BuildRoot $buildRoot
+        $packageRootA = Join-Path $extractRootA $packageName
+        Invoke-PortableFirstAndSecondStartValidation -PackageRoot $packageRootA -PayloadPath $payloadPath -Port 8000
 
-zip_path = pathlib.Path(sys.argv[1]).resolve()
-target = pathlib.Path(sys.argv[2]).resolve()
-with zipfile.ZipFile(zip_path) as archive:
-    archive.extractall(target)
-'@
-        Invoke-PythonScript -Python $buildPython -ScriptPath $unzipScript -Arguments @($zipPath, $extractRoot) -WorkingDirectory $buildRoot
-        Invoke-PortableLifecycleValidation -PackageRoot (Join-Path $extractRoot $packageName) -PayloadPath $payloadPath -Port 8000
+        $extractRootB = Join-Path $buildRoot "path B with spaces\Drug Gradient Chip 中文"
+        Expand-ZipArchiveWithPython -Python $buildPython -ZipPath $zipPath -DestinationRoot $extractRootB -BuildRoot $buildRoot
+        $packageRootB = Join-Path $extractRootB $packageName
+        Invoke-PortableFirstAndSecondStartValidation -PackageRoot $packageRootB -PayloadPath $payloadPath -Port 8000
+
+        $movedRootCParent = Join-Path $buildRoot "path C moved initialized"
+        if (Test-Path -LiteralPath $movedRootCParent) { Remove-Item -LiteralPath $movedRootCParent -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $movedRootCParent | Out-Null
+        $packageRootC = Join-Path $movedRootCParent $packageName
+        Move-Item -LiteralPath $packageRootA -Destination $packageRootC
+        Assert-MovedInitializedPackageRefusesStart -PackageRoot $packageRootC -Port 8000
         Info "Created $zipPath"
         Info "Created $zipPath.sha256"
     }

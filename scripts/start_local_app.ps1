@@ -24,6 +24,7 @@ function Fail([string]$Message) { Write-Host "[error] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
 function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
 function StatePath([string]$Root) { return Join-Path (Join-Path $Root ".runtime") "app-state.json" }
+function RuntimeReadyMarkerPath([string]$Root) { return Join-Path (Join-Path $Root "runtime") ".conda-unpacked" }
 function Quote-ProcessArgument([string]$Value) {
     if ($Value -notmatch '[\s"]') { return $Value }
     return '"' + ($Value -replace '"', '\"') + '"'
@@ -87,6 +88,70 @@ function ResolvePortablePython([string]$Root) {
     if (-not (Test-Path -LiteralPath $python)) { throw "Portable runtime python.exe was not found: $python" }
     & $python --version | Out-Null
     return $python
+}
+function Write-JsonAtomically([string]$Path, [object]$Value) {
+    $directory = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    $temp = Join-Path $directory (".tmp-" + [guid]::NewGuid().ToString("N") + ".json")
+    try {
+        $Value | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $temp -Encoding UTF8
+        Move-Item -LiteralPath $temp -Destination $Path -Force
+    } finally {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    }
+}
+function ShowCondaUnpackLogTail([string]$StdoutLog, [string]$StderrLog) {
+    try {
+        if (Test-Path -LiteralPath $StderrLog) {
+            $stderr = @(Get-Content -LiteralPath $StderrLog -Tail 30 -ErrorAction SilentlyContinue)
+            if ($stderr.Count -gt 0) {
+                Write-Host "[conda-unpack stderr tail]"
+                $stderr | ForEach-Object { Write-Host $_ }
+            }
+        }
+        if (Test-Path -LiteralPath $StdoutLog) {
+            $stdout = @(Get-Content -LiteralPath $StdoutLog -Tail 30 -ErrorAction SilentlyContinue)
+            if ($stdout.Count -gt 0) {
+                Write-Host "[conda-unpack stdout tail]"
+                $stdout | ForEach-Object { Write-Host $_ }
+            }
+        }
+    } catch {
+        Warn "Could not read conda-unpack logs: $($_.Exception.Message)"
+    }
+}
+function EnsurePortableRuntimeReady([string]$Root, [string]$LogsDir) {
+    $runtimeRoot = (Resolve-Path -LiteralPath (Join-Path $Root "runtime")).Path
+    $applicationRoot = (Resolve-Path -LiteralPath $Root).Path
+    $marker = RuntimeReadyMarkerPath -Root $Root
+    if (Test-Path -LiteralPath $marker) {
+        $payload = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
+        if ([string]$payload.application_root -ne $applicationRoot -or [string]$payload.runtime_root -ne $runtimeRoot) {
+            throw "Portable runtime was already initialized at a different path. Re-extract the original ZIP to the target location instead of moving an initialized directory."
+        }
+        Info "Portable runtime is already relocated."
+        return
+    }
+
+    $condaUnpack = Join-Path $runtimeRoot "Scripts\conda-unpack.exe"
+    if (-not (Test-Path -LiteralPath $condaUnpack)) {
+        throw "Portable runtime relocation tool was not found: $condaUnpack"
+    }
+    $stdoutLog = Join-Path $LogsDir "conda-unpack.stdout.log"
+    $stderrLog = Join-Path $LogsDir "conda-unpack.stderr.log"
+    Info "Relocating portable runtime for this directory."
+    $process = Start-Process -FilePath $condaUnpack -WorkingDirectory $Root -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    if ($process.ExitCode -ne 0) {
+        ShowCondaUnpackLogTail -StdoutLog $stdoutLog -StderrLog $stderrLog
+        throw "Portable runtime relocation failed with exit code $($process.ExitCode)."
+    }
+    Write-JsonAtomically -Path $marker -Value ([ordered]@{
+        schema_version = 1
+        application_root = $applicationRoot
+        runtime_root = $runtimeRoot
+        completed_at = (Get-Date).ToUniversalTime().ToString("o")
+    })
+    Info "Portable runtime relocation completed."
 }
 function AssertPortAvailable([string]$BindAddress, [int]$TargetPort, [string]$StateFile, [string]$Root) {
     $state = ReadState -Path $StateFile
@@ -254,11 +319,12 @@ try {
 
     if ($resolvedRuntimeMode -eq "portable") {
         AssertPortableLayout -Root $root
-        $python = ResolvePortablePython -Root $root
         $env:Path = Get-PortablePath -Root $root -OriginalPath $originalPath
         $env:PYTHONNOUSERSITE = "1"
         $env:PYTHONUTF8 = "1"
         Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue
+        EnsurePortableRuntimeReady -Root $root -LogsDir $logsDir
+        $python = ResolvePortablePython -Root $root
         if ($RebuildFrontend) { Warn "-RebuildFrontend is ignored in portable mode." }
     } else {
         $python = ResolvePython -EnvironmentName $CondaEnvironment -OverridePath $PythonPath
