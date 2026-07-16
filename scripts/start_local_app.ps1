@@ -7,6 +7,8 @@ param(
     [ValidateSet("cpu", "cuda", "auto")]
     [string]$Device = "cpu",
     [string]$PythonPath = "",
+    [ValidateSet("Auto", "Development", "Portable")]
+    [string]$RuntimeMode = "Auto",
     [switch]$RebuildFrontend,
     [switch]$NoBrowser,
     [switch]$Foreground,
@@ -22,6 +24,16 @@ function Fail([string]$Message) { Write-Host "[error] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
 function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
 function StatePath([string]$Root) { return Join-Path (Join-Path $Root ".runtime") "app-state.json" }
+function ResolveRuntimeMode([string]$Root, [string]$RequestedMode) {
+    if ($RequestedMode -ne "Auto") { return $RequestedMode.ToLowerInvariant() }
+    $portablePython = Join-Path $Root "runtime\python.exe"
+    $buildInfo = Join-Path $Root "BUILD_INFO.json"
+    $distIndex = Join-Path $Root "frontend\dist\index.html"
+    if ((Test-Path -LiteralPath $portablePython) -and (Test-Path -LiteralPath $buildInfo) -and (Test-Path -LiteralPath $distIndex)) {
+        return "portable"
+    }
+    return "development"
+}
 function ProcLine([int]$TargetProcessId) {
     $process = Get-CimInstance Win32_Process -Filter "ProcessId=$TargetProcessId" -ErrorAction SilentlyContinue
     if ($null -eq $process) { return "" }
@@ -65,6 +77,12 @@ function ResolvePython([string]$EnvironmentName, [string]$OverridePath) {
         }
     }
     throw "Conda environment '$EnvironmentName' was not found."
+}
+function ResolvePortablePython([string]$Root) {
+    $python = Join-Path $Root "runtime\python.exe"
+    if (-not (Test-Path -LiteralPath $python)) { throw "Portable runtime python.exe was not found: $python" }
+    & $python --version | Out-Null
+    return $python
 }
 function AssertPortAvailable([string]$BindAddress, [int]$TargetPort, [string]$StateFile, [string]$Root) {
     $state = ReadState -Path $StateFile
@@ -127,6 +145,24 @@ function BuildFrontend([string]$Root, [switch]$Force) {
     if ((Get-Item -LiteralPath $distIndex).Length -le 0) { throw "frontend dist index.html is empty." }
 }
 
+function AssertPortableLayout([string]$Root) {
+    foreach ($required in @("runtime\python.exe", "BUILD_INFO.json", "frontend\dist\index.html", "model_assets\forward\manifest.json")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root $required))) { throw "Portable package is incomplete; missing $required" }
+    }
+    $index = Join-Path $Root "frontend\dist\index.html"
+    if ((Get-Item -LiteralPath $index).Length -le 0) { throw "Portable frontend index.html is empty." }
+}
+
+function Get-PortablePath([string]$Root, [string]$OriginalPath) {
+    $entries = New-Object System.Collections.Generic.List[string]
+    foreach ($relative in @("runtime", "runtime\Scripts", "runtime\Library\bin", "runtime\Library\usr\bin", "runtime\Library\mingw-w64\bin")) {
+        $path = Join-Path $Root $relative
+        if (Test-Path -LiteralPath $path) { $entries.Add($path) }
+    }
+    if ($OriginalPath.Trim()) { $entries.Add($OriginalPath) }
+    return ($entries -join ";")
+}
+
 function ShowLogTail([string]$StdoutLog, [string]$StderrLog) {
     try {
         if (Test-Path -LiteralPath $StderrLog) {
@@ -182,8 +218,12 @@ function OpenBrowserSafely([string]$Url, [string]$CommandPath) {
 
 try {
     $root = RepoRoot
-    foreach ($required in @("backend\app\main.py", "frontend\package.json", "model_assets\forward\manifest.json")) {
+    foreach ($required in @("backend\app\main.py", "model_assets\forward\manifest.json")) {
         if (-not (Test-Path -LiteralPath (Join-Path $root $required))) { throw "Missing required path: $required" }
+    }
+    $resolvedRuntimeMode = ResolveRuntimeMode -Root $root -RequestedMode $RuntimeMode
+    if ($resolvedRuntimeMode -eq "development" -and -not (Test-Path -LiteralPath (Join-Path $root "frontend\package.json"))) {
+        throw "Missing required path: frontend\package.json"
     }
     $runtimeDir = Join-Path $root ".runtime"
     $logsDir = Join-Path $runtimeDir "logs"
@@ -196,8 +236,26 @@ try {
     $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
     if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
-    $python = ResolvePython -EnvironmentName $CondaEnvironment -OverridePath $PythonPath
-    BuildFrontend -Root $root -Force:$RebuildFrontend
+    $originalPath = $env:Path
+    $hadModelSourceRoot = Test-Path Env:MODEL_SOURCE_ROOT
+    $originalModelSourceRoot = if ($hadModelSourceRoot) { $env:MODEL_SOURCE_ROOT } else { $null }
+    $hadPythonNoUserSite = Test-Path Env:PYTHONNOUSERSITE
+    $originalPythonNoUserSite = if ($hadPythonNoUserSite) { $env:PYTHONNOUSERSITE } else { $null }
+    $hadPythonUtf8 = Test-Path Env:PYTHONUTF8
+    $originalPythonUtf8 = if ($hadPythonUtf8) { $env:PYTHONUTF8 } else { $null }
+
+    if ($resolvedRuntimeMode -eq "portable") {
+        AssertPortableLayout -Root $root
+        $python = ResolvePortablePython -Root $root
+        $env:Path = Get-PortablePath -Root $root -OriginalPath $originalPath
+        $env:PYTHONNOUSERSITE = "1"
+        $env:PYTHONUTF8 = "1"
+        Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue
+        if ($RebuildFrontend) { Warn "-RebuildFrontend is ignored in portable mode." }
+    } else {
+        $python = ResolvePython -EnvironmentName $CondaEnvironment -OverridePath $PythonPath
+        BuildFrontend -Root $root -Force:$RebuildFrontend
+    }
 
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"
     $stderrLog = Join-Path $logsDir "backend.stderr.log"
@@ -216,6 +274,7 @@ try {
     $state = [ordered]@{
         schema_version = 1
         pid = $process.Id
+        runtime_mode = $resolvedRuntimeMode
         host = $HostAddress
         port = $Port
         url = $url
@@ -224,6 +283,11 @@ try {
         started_at = (Get-Date).ToUniversalTime().ToString("o")
         stdout_log = $stdoutLog
         stderr_log = $stderrLog
+    }
+    if ($resolvedRuntimeMode -eq "portable" -and (Test-Path -LiteralPath (Join-Path $root "BUILD_INFO.json"))) {
+        $buildInfo = Get-Content -LiteralPath (Join-Path $root "BUILD_INFO.json") -Raw | ConvertFrom-Json
+        $state["application_version"] = [string]$buildInfo.version
+        $state["build_commit"] = [string]$buildInfo.build_commit
     }
     $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $stateFile -Encoding UTF8
     try {
@@ -238,8 +302,28 @@ try {
     }
     Info "Application started: $url"
     if (-not $NoBrowser) { OpenBrowserSafely -Url $url -CommandPath $BrowserCommand }
+    if ($resolvedRuntimeMode -eq "portable") {
+        $env:Path = $originalPath
+        if ($hadModelSourceRoot) { $env:MODEL_SOURCE_ROOT = $originalModelSourceRoot } else { Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue }
+        if ($hadPythonNoUserSite) { $env:PYTHONNOUSERSITE = $originalPythonNoUserSite } else { Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue }
+        if ($hadPythonUtf8) { $env:PYTHONUTF8 = $originalPythonUtf8 } else { Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue }
+    }
     exit 0
 } catch {
+    if (Get-Variable -Name resolvedRuntimeMode -ErrorAction SilentlyContinue) {
+        if ($resolvedRuntimeMode -eq "portable") {
+            if (Get-Variable -Name originalPath -ErrorAction SilentlyContinue) { $env:Path = $originalPath }
+            if (Get-Variable -Name hadModelSourceRoot -ErrorAction SilentlyContinue) {
+                if ($hadModelSourceRoot) { $env:MODEL_SOURCE_ROOT = $originalModelSourceRoot } else { Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue }
+            }
+            if (Get-Variable -Name hadPythonNoUserSite -ErrorAction SilentlyContinue) {
+                if ($hadPythonNoUserSite) { $env:PYTHONNOUSERSITE = $originalPythonNoUserSite } else { Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue }
+            }
+            if (Get-Variable -Name hadPythonUtf8 -ErrorAction SilentlyContinue) {
+                if ($hadPythonUtf8) { $env:PYTHONUTF8 = $originalPythonUtf8 } else { Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue }
+            }
+        }
+    }
     Fail $_.Exception.Message
     exit 1
 }

@@ -87,6 +87,15 @@ try {
     Write-Status "pid" $targetProcessId
     Write-Status "url" $state.url
     Write-Status "port" $state.port
+    if (Get-Member -InputObject $state -Name runtime_mode -MemberType NoteProperty) {
+        Write-Status "runtime_mode" $state.runtime_mode
+    }
+    if (Get-Member -InputObject $state -Name application_version -MemberType NoteProperty) {
+        Write-Status "application_version" $state.application_version
+    }
+    if (Get-Member -InputObject $state -Name build_commit -MemberType NoteProperty) {
+        Write-Status "build_commit" $state.build_commit
+    }
     Write-Status "process_exists" $exists
     Write-Status "health" $healthOk
     Write-Status "model_ready" $modelReady
