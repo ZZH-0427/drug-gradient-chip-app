@@ -154,6 +154,7 @@ function Remove-GeneratedCaches([string]$Root) {
         $filtered = @(
             foreach ($line in $lines) {
                 if ($line -match "__pycache__" -or $line -match "\.py[co]'" -or $line -match "\.log'" -or $line -match "\.pid'") { continue }
+                if ($line -match "^\('conda-meta\\") { continue }
                 $line
             }
         )
@@ -173,6 +174,7 @@ function Remove-GeneratedCaches([string]$Root) {
 }
 
 function Remove-ReleaseJunk([string]$PackageRoot) {
+    Remove-GeneratedCaches -Root $PackageRoot
     foreach ($relative in @(
         ".runtime",
         ".git",
@@ -182,7 +184,8 @@ function Remove-ReleaseJunk([string]$PackageRoot) {
         "frontend\node_modules",
         "frontend\src",
         "frontend\coverage",
-        "frontend\.vite"
+        "frontend\.vite",
+        "runtime\conda-meta"
     )) {
         $path = Join-Path $PackageRoot $relative
         if (Test-Path -LiteralPath $path) {
