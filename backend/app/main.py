@@ -44,10 +44,18 @@ def create_app(
                 adapter = factory()
                 app_instance.state.forward_model = ForwardModelState.ready_state(adapter)
                 state = app_instance.state.forward_model
+                settings = getattr(adapter, "settings", None)
                 logger.info(
-                    "Forward model loaded successfully: ensemble_size=%s device=%s",
+                    "Forward model loaded successfully: ensemble_size=%s device=%s asset_source=%s",
                     len(state.seeds or []),
                     state.device,
+                    getattr(settings, "asset_source", "unknown"),
+                )
+                logging.getLogger("uvicorn.error").info(
+                    "Forward model loaded successfully: ensemble_size=%s device=%s asset_source=%s",
+                    len(state.seeds or []),
+                    state.device,
+                    getattr(settings, "asset_source", "unknown"),
                 )
             except ModelRuntimeError as exc:
                 logger.exception("Forward model loading failed: %s", exc)

@@ -10,6 +10,7 @@ param(
     [switch]$RebuildFrontend,
     [switch]$NoBrowser,
     [switch]$Foreground,
+    [string]$BrowserCommand = "",
     [int]$StartupTimeoutSeconds = 90
 )
 
@@ -18,6 +19,7 @@ $ErrorActionPreference = "Stop"
 
 function Info([string]$Message) { Write-Host "[info] $Message" }
 function Fail([string]$Message) { Write-Host "[error] $Message" }
+function Warn([string]$Message) { Write-Warning $Message }
 function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
 function StatePath([string]$Root) { return Join-Path (Join-Path $Root ".runtime") "app-state.json" }
 function ProcLine([int]$TargetProcessId) {
@@ -68,14 +70,14 @@ function AssertPortAvailable([string]$BindAddress, [int]$TargetPort, [string]$St
     $state = ReadState -Path $StateFile
     if (IsOurState -State $state -Root $Root) {
         Info "Application is already running: $($state.url)"
-        if (-not $NoBrowser) { Start-Process $state.url | Out-Null }
+        if (-not $NoBrowser) { OpenBrowserSafely -Url $state.url -CommandPath $BrowserCommand }
         exit 0
     }
     if ($null -ne $state) {
         Info "Removing stale state file."
         Remove-Item -LiteralPath $StateFile -Force -ErrorAction SilentlyContinue
     }
-    $connection = Get-NetTCPConnection -LocalAddress $BindAddress -LocalPort $TargetPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    $connection = Get-NetTCPConnection -LocalPort $TargetPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -ne $connection) {
         $process = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
         $name = if ($null -eq $process) { "unknown" } else { $process.ProcessName }
@@ -124,12 +126,58 @@ function BuildFrontend([string]$Root, [switch]$Force) {
     }
     if ((Get-Item -LiteralPath $distIndex).Length -le 0) { throw "frontend dist index.html is empty." }
 }
-function WaitJson([string]$Uri, [int]$TimeoutSeconds) {
+
+function ShowLogTail([string]$StdoutLog, [string]$StderrLog) {
+    try {
+        if (Test-Path -LiteralPath $StderrLog) {
+            $stderr = @(Get-Content -LiteralPath $StderrLog -Tail 30 -ErrorAction SilentlyContinue)
+            if ($null -ne $stderr -and $stderr.Count -gt 0) {
+                Write-Host "[stderr tail]"
+                $stderr | ForEach-Object { Write-Host $_ }
+                return
+            }
+        }
+        if (Test-Path -LiteralPath $StdoutLog) {
+            $stdout = @(Get-Content -LiteralPath $StdoutLog -Tail 30 -ErrorAction SilentlyContinue)
+            if ($null -ne $stdout -and $stdout.Count -gt 0) {
+                Write-Host "[stdout tail]"
+                $stdout | ForEach-Object { Write-Host $_ }
+            }
+        }
+    } catch {
+        Warn "Could not read startup logs: $($_.Exception.Message)"
+    }
+}
+
+function AssertProcessAlive([int]$TargetProcessId, [string]$StdoutLog, [string]$StderrLog) {
+    $running = Get-Process -Id $TargetProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $running) {
+        throw "Uvicorn exited before startup completed."
+    }
+}
+
+function WaitJson([string]$Uri, [int]$TimeoutSeconds, [int]$TargetProcessId, [string]$StdoutLog, [string]$StderrLog) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
+        AssertProcessAlive -TargetProcessId $TargetProcessId -StdoutLog $StdoutLog -StderrLog $StderrLog
         try { return Invoke-RestMethod -Method Get -Uri $Uri -TimeoutSec 5 } catch { Start-Sleep -Milliseconds 800 }
     } while ((Get-Date) -lt $deadline)
     throw "Timed out waiting for $Uri"
+}
+
+function OpenBrowserSafely([string]$Url, [string]$CommandPath) {
+    try {
+        if ($CommandPath.Trim()) {
+            if (-not (Test-Path -LiteralPath $CommandPath)) {
+                throw "Browser command was not found: $CommandPath"
+            }
+            Start-Process -FilePath $CommandPath -ArgumentList @($Url) | Out-Null
+        } else {
+            Start-Process $Url | Out-Null
+        }
+    } catch {
+        Warn "Application started, but the browser could not be opened: $($_.Exception.Message)"
+    }
 }
 
 try {
@@ -154,7 +202,6 @@ try {
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"
     $stderrLog = Join-Path $logsDir "backend.stderr.log"
     $url = "http://$HostAddress`:$Port"
-    $env:MODEL_SOURCE_ROOT = ""
     $env:FORWARD_MODEL_DEVICE = $Device
     $env:SERVE_FRONTEND = "true"
     $env:FRONTEND_DIST_DIR = Join-Path $root "frontend\dist"
@@ -180,16 +227,17 @@ try {
     }
     $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $stateFile -Encoding UTF8
     try {
-        WaitJson -Uri "$url/api/v1/health" -TimeoutSeconds $StartupTimeoutSeconds | Out-Null
-        $model = WaitJson -Uri "$url/api/v1/model-status" -TimeoutSeconds $StartupTimeoutSeconds
+        WaitJson -Uri "$url/api/v1/health" -TimeoutSeconds $StartupTimeoutSeconds -TargetProcessId $process.Id -StdoutLog $stdoutLog -StderrLog $stderrLog | Out-Null
+        $model = WaitJson -Uri "$url/api/v1/model-status" -TimeoutSeconds $StartupTimeoutSeconds -TargetProcessId $process.Id -StdoutLog $stdoutLog -StderrLog $stderrLog
         if (-not $model.ready) { throw "model-status is not ready." }
     } catch {
         Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue
+        ShowLogTail -StdoutLog $stdoutLog -StderrLog $stderrLog
         throw
     }
     Info "Application started: $url"
-    if (-not $NoBrowser) { Start-Process $url | Out-Null }
+    if (-not $NoBrowser) { OpenBrowserSafely -Url $url -CommandPath $BrowserCommand }
     exit 0
 } catch {
     Fail $_.Exception.Message
