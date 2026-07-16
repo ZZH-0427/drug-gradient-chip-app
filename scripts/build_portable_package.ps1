@@ -185,6 +185,17 @@ function Invoke-FrontendBuild([string]$Root, [bool]$RunChecks) {
     Run-Checked -FilePath $npm.Source -Arguments @("run", "build") -WorkingDirectory $frontend
 }
 
+function Get-RuntimePackageAudit([string]$Python, [string]$WorkingDirectory) {
+    $freeze = Get-CommandOutput -FilePath $Python -Arguments @("-m", "pip", "freeze") -WorkingDirectory $WorkingDirectory
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($freeze -split "`r?`n")) {
+        if ($line -match "^\s*-e\s+") { continue }
+        if ($line -match "^# Editable ") { continue }
+        if ($line.Trim()) { $lines.Add($line) }
+    }
+    return ($lines -join [Environment]::NewLine)
+}
+
 function Invoke-HttpValidation([string]$Url, [string]$PayloadPath) {
     $health = Invoke-RestMethod -Method Get -Uri "$Url/api/v1/health" -TimeoutSec 10
     if ($health.status -ne "ok") { throw "Health endpoint returned an unexpected response." }
@@ -336,7 +347,7 @@ with tarfile.open(archive, "r:gz") as handle:
 
     $runtimePython = Join-Path $stageRoot "runtime\python.exe"
     Run-Checked -FilePath $runtimePython -Arguments @("--version") -WorkingDirectory $stageRoot
-    $runtimePackages = Get-CommandOutput -FilePath $runtimePython -Arguments @("-m", "pip", "freeze") -WorkingDirectory $stageRoot
+    $runtimePackages = Get-RuntimePackageAudit -Python $runtimePython -WorkingDirectory $stageRoot
     Write-Text -Path (Join-Path $stageRoot "runtime-packages.txt") -Text $runtimePackages
 
     $buildInfo = [ordered]@{
