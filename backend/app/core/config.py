@@ -16,6 +16,7 @@ DEFAULT_FRONTEND_ORIGINS: tuple[str, ...] = (
     "http://127.0.0.1:5173",
     "http://localhost:5173",
 )
+TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 
 def project_root() -> Path:
@@ -170,3 +171,14 @@ def resolve_frontend_origins() -> list[str]:
         origins.append(origin)
         seen.add(origin)
     return origins
+
+
+def resolve_serve_frontend() -> bool:
+    return os.getenv("SERVE_FRONTEND", "").strip().lower() in TRUTHY_VALUES
+
+
+def resolve_frontend_dist_dir() -> Path:
+    configured = os.getenv("FRONTEND_DIST_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return project_root() / "frontend" / "dist"

@@ -4,11 +4,12 @@ import type {
   ForwardPredictionResponse,
   ModelStatusResponse,
 } from "./types";
+import { resolveApiBaseUrl } from "./baseUrl";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000").replace(
-  /\/+$/,
-  "",
-);
+const API_BASE_URL = resolveApiBaseUrl({
+  configuredUrl: import.meta.env.VITE_API_BASE_URL,
+  isDevelopment: import.meta.env.DEV,
+});
 
 export class ApiClientError extends Error {
   constructor(
