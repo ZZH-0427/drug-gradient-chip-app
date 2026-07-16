@@ -91,12 +91,12 @@ def select_device(configured: str) -> torch.device:
     if configured == "cuda" and not torch.cuda.is_available():
         raise ModelRuntimeError(
             ModelErrorCode.MODEL_CHECKPOINT_INVALID,
-            "MODEL_DEVICE=cuda was requested but CUDA is not available.",
+            "FORWARD_MODEL_DEVICE=cuda was requested but CUDA is not available.",
         )
     if configured not in {"cpu", "cuda"}:
         raise ModelRuntimeError(
             ModelErrorCode.MODEL_CHECKPOINT_INVALID,
-            "MODEL_DEVICE must be one of auto, cpu, cuda.",
+            "FORWARD_MODEL_DEVICE must be one of auto, cpu, cuda.",
             {"device": configured},
         )
     return torch.device(configured)

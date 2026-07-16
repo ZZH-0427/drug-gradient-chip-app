@@ -8,16 +8,19 @@ version = "0.1.0"
 description = "Forward model runtime wrapper for drug concentration gradient chip prediction."
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi",
   "numpy",
   "pandas",
   "pydantic",
   "torch",
   "torch-geometric",
+  "uvicorn",
   "xxhash",
 ]
 
 [project.optional-dependencies]
 test = [
+  "httpx",
   "pytest",
 ]
 

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.errors import ModelErrorCode, ModelRuntimeError
 
 
+logger = logging.getLogger(__name__)
 DEFAULT_SEEDS: tuple[int, ...] = (42, 52, 62, 72, 82)
 CHECKPOINT_NAME = "best_ablation_checkpoint.pt"
+VALID_DEVICES = {"auto", "cpu", "cuda"}
 
 
 @dataclass(frozen=True)
@@ -26,9 +29,10 @@ class ForwardModelSettings:
                 ModelErrorCode.MODEL_SOURCE_ROOT_MISSING,
                 "MODEL_SOURCE_ROOT is not configured.",
             )
+        device = resolve_forward_model_device()
         return cls(
             model_source_root=Path(raw_root),
-            device=os.getenv("MODEL_DEVICE", "auto").strip() or "auto",
+            device=device,
         )
 
     @property
@@ -109,3 +113,27 @@ class ForwardModelSettings:
                 "One or more model assets were not found.",
                 {"missing": [str(path) for path in missing]},
             )
+
+
+def resolve_forward_model_device() -> str:
+    new_value = os.getenv("FORWARD_MODEL_DEVICE")
+    old_value = os.getenv("MODEL_DEVICE")
+
+    if new_value is not None:
+        device = new_value.strip() or "cpu"
+        if old_value is not None and old_value.strip() and old_value.strip() != device:
+            logger.warning(
+                "Both FORWARD_MODEL_DEVICE and MODEL_DEVICE are set; using FORWARD_MODEL_DEVICE."
+            )
+    elif old_value is not None:
+        device = old_value.strip() or "cpu"
+    else:
+        device = "cpu"
+
+    if device not in VALID_DEVICES:
+        raise ModelRuntimeError(
+            ModelErrorCode.MODEL_CONFIGURATION_ERROR,
+            "FORWARD_MODEL_DEVICE must be one of auto, cpu, cuda.",
+            {"device": device},
+        )
+    return device
