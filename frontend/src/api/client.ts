@@ -5,6 +5,7 @@ import type {
   ModelStatusResponse,
 } from "./types";
 import { resolveApiBaseUrl } from "./baseUrl";
+import { MODEL_LIMIT_MESSAGE } from "../domain/forward";
 
 const API_BASE_URL = resolveApiBaseUrl({
   configuredUrl: import.meta.env.VITE_API_BASE_URL,
@@ -15,6 +16,7 @@ export class ApiClientError extends Error {
   constructor(
     public readonly kind:
       | "validation"
+      | "unsupported_chip_count"
       | "model_unavailable"
       | "inference_failure"
       | "network"
@@ -69,6 +71,10 @@ async function readJson(response: Response): Promise<ApiErrorResponse | unknown>
 }
 
 function mapError(status: number, payload: ApiErrorResponse | unknown): ApiClientError {
+  const known = payload && typeof payload === "object" ? (payload as ApiErrorResponse).error : undefined;
+  if (known?.code === "UNSUPPORTED_CHIP_COUNT") {
+    return new ApiClientError("unsupported_chip_count", MODEL_LIMIT_MESSAGE, status);
+  }
   if (status === 422) {
     return new ApiClientError("validation", "参数验证失败，请检查芯片参数。", status);
   }
@@ -78,7 +84,6 @@ function mapError(status: number, payload: ApiErrorResponse | unknown): ApiClien
   if (status === 500) {
     return new ApiClientError("inference_failure", "正向预测执行失败，请稍后重试。", status);
   }
-  const known = payload && typeof payload === "object" ? (payload as ApiErrorResponse).error : undefined;
   if (known?.code) {
     return new ApiClientError("unexpected", "后端返回了无法处理的错误。", status);
   }

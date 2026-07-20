@@ -11,16 +11,64 @@ export interface ChipFormRow {
 
 export interface ForwardFormState {
   sample_name: string;
+  chip_count: number;
   inletMode: "inlet1" | "inlet2";
   chips: ChipFormRow[];
 }
+
+export const MIN_CHIP_COUNT = 4;
+export const MAX_CHIP_COUNT = 10;
+export const CURRENT_MODEL_CHIP_COUNT = 6;
+export const CHIP_COUNT_OPTIONS = Array.from(
+  { length: MAX_CHIP_COUNT - MIN_CHIP_COUNT + 1 },
+  (_, index) => MIN_CHIP_COUNT + index,
+);
+export const MODEL_LIMIT_MESSAGE =
+  "当前模型仅支持6个芯片。其他芯片数量将在可变节点模型接入后开放。";
 
 export const CHIP_TYPE_OPTIONS = Array.from({ length: 6 }, (_, leftIndex) =>
   Array.from({ length: 6 }, (_, rightIndex) => `${leftIndex + 1}to${rightIndex + 1}`),
 ).flat();
 
+export function pointLabelsForPosition(position: number): [string, string] {
+  return [`P${position * 2 - 1}`, `P${position * 2}`];
+}
+
+export function createDefaultChipRow(position: number): ChipFormRow {
+  const [point_left, point_right] = pointLabelsForPosition(position);
+  return {
+    position,
+    point_left,
+    point_right,
+    chip_type: "1to1",
+    left_width_mm: "",
+    right_width_mm: "",
+    left_bend_straight_distance_mm: "",
+    right_bend_straight_distance_mm: "",
+  };
+}
+
+function normalizeChipRow(chip: ChipFormRow, position: number): ChipFormRow {
+  const [point_left, point_right] = pointLabelsForPosition(position);
+  return {
+    ...chip,
+    position,
+    point_left,
+    point_right,
+  };
+}
+
+export function resizeChipRows(currentRows: ChipFormRow[], newCount: number): ChipFormRow[] {
+  return Array.from({ length: newCount }, (_, index) => {
+    const position = index + 1;
+    const existing = currentRows[index];
+    return existing ? normalizeChipRow(existing, position) : createDefaultChipRow(position);
+  });
+}
+
 export const EXAMPLE_FORM: ForwardFormState = {
   sample_name: "DP 0",
+  chip_count: CURRENT_MODEL_CHIP_COUNT,
   inletMode: "inlet1",
   chips: [
     {
@@ -96,6 +144,7 @@ export function cloneExampleForm(): ForwardFormState {
 export function emptyEditableForm(previous: ForwardFormState): ForwardFormState {
   return {
     sample_name: "",
+    chip_count: previous.chip_count,
     inletMode: previous.inletMode,
     chips: previous.chips.map((chip) => ({
       ...chip,

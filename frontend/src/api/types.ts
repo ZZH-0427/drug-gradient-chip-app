@@ -9,6 +9,7 @@ export interface ForwardChipInput {
 
 export interface ForwardPredictionRequest {
   sample_name: string;
+  chip_count: number;
   inlet1: number;
   inlet2: number;
   chips: ForwardChipInput[];

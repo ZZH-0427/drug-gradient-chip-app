@@ -208,6 +208,12 @@ h2 {
   background: #fff7f7;
 }
 
+.message.inline-warning {
+  color: #7a4b00;
+  border-color: #f0d28a;
+  background: #fff9e8;
+}
+
 .message p:last-child {
   margin-bottom: 0;
 }
@@ -222,6 +228,22 @@ h2 {
   gap: 16px;
   align-items: end;
   margin-bottom: 18px;
+}
+
+.form-grid.form-grid-wide {
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px) minmax(220px, 280px) minmax(360px, 1.4fr);
+}
+
+.chip-count-summary {
+  display: grid;
+  gap: 4px;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: #334155;
+  border: 1px solid #d9e2ef;
+  border-radius: 6px;
+  background: #f8fafc;
+  font-weight: 600;
 }
 
 label {

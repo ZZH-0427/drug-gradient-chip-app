@@ -1,4 +1,5 @@
 import type { ForwardPredictionRequest } from "../api/types";
+import { MAX_CHIP_COUNT, MIN_CHIP_COUNT } from "./forward";
 import type { ForwardFormState } from "./forward";
 
 export interface ValidationResult {
@@ -24,6 +25,12 @@ export function validateForwardForm(form: ForwardFormState): ValidationResult {
   const sampleName = form.sample_name.trim();
   if (!sampleName) {
     errors.push("样本名称不能为空。");
+  }
+  if (form.chip_count < MIN_CHIP_COUNT || form.chip_count > MAX_CHIP_COUNT) {
+    errors.push("芯片数量必须在4到10之间。");
+  }
+  if (form.chips.length !== form.chip_count) {
+    errors.push("芯片位置数量必须与芯片数量一致。");
   }
 
   const chips = form.chips.map((chip) => {
@@ -53,6 +60,7 @@ export function validateForwardForm(form: ForwardFormState): ValidationResult {
     errors: [],
     payload: {
       sample_name: sampleName,
+      chip_count: form.chip_count,
       inlet1: form.inletMode === "inlet1" ? 1 : 0,
       inlet2: form.inletMode === "inlet2" ? 1 : 0,
       chips: chips.map((chip) => ({

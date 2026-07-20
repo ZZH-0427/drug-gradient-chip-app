@@ -12,25 +12,27 @@ const statusReady = {
   device: "cpu",
 };
 
-const successPayload = {
-  sample_name: "DP 0",
-  inlets: { inlet1: 1, inlet2: 0 },
-  ensemble_seeds: [42, 52, 62, 72, 82],
-  predictions: Array.from({ length: 6 }, (_, index) => ({
-    position: index + 1,
-    point: `y${index + 1}`,
-    chip_type: ["5to4", "4to2", "1to6", "2to4", "6to3", "3to1"][index],
-    mean: index + 0.1234567,
-    std: 0.01 * (index + 1),
-    seed_values: {
-      "42": index + 1,
-      "52": index + 2,
-      "62": index + 3,
-      "72": index + 4,
-      "82": index + 5,
-    },
-  })),
-};
+function successPayload(length = 6) {
+  return {
+    sample_name: "DP 0",
+    inlets: { inlet1: 1, inlet2: 0 },
+    ensemble_seeds: [42, 52, 62, 72, 82],
+    predictions: Array.from({ length }, (_, index) => ({
+      position: index + 1,
+      point: `y${index + 1}`,
+      chip_type: ["5to4", "4to2", "1to6", "2to4", "6to3", "3to1"][index] ?? "1to1",
+      mean: index + 0.1234567,
+      std: 0.01 * (index + 1),
+      seed_values: {
+        "42": index + 1,
+        "52": index + 2,
+        "62": index + 3,
+        "72": index + 4,
+        "82": index + 5,
+      },
+    })),
+  };
+}
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -42,29 +44,40 @@ afterEach(() => {
 });
 
 describe("App navigation", () => {
-  it("renders home entries and navigates to reverse placeholder", async () => {
-    const user = userEvent.setup();
+  it("renders only the forward entry on the home page", () => {
     renderApp("/");
 
     expect(screen.getByRole("heading", { name: "药物浓度梯度芯片预测系统" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "正向预测" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "反向预测" })).toBeInTheDocument();
+    expect(screen.queryByText("反向预测")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "反向预测" })).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("link", { name: "反向预测" }));
+  it("shows not found for /reverse", () => {
+    renderApp("/reverse");
 
-    expect(screen.getByRole("heading", { name: "反向预测尚未接入" })).toBeInTheDocument();
-    expect(screen.getByText("当前系统只集成了正向预测模型，反向模型逻辑和运行时接口尚不可用。")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "页面不存在" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回首页" })).toBeInTheDocument();
   });
 });
 
 describe("Forward workflow", () => {
-  it("renders six fixed positions, generated chip options, and mutually exclusive inlet choices", async () => {
+  it("renders default six-chip form, generated point labels, chip options, and mutually exclusive inlet choices", async () => {
     const user = userEvent.setup();
     mockFetch(jsonResponse(statusReady));
     renderApp("/forward");
 
     await screen.findByText("模型已就绪，ensemble=5");
-    expect(screen.getAllByText(/^位置 \d$/)).toHaveLength(6);
+    expect(screen.getByRole("combobox", { name: "芯片数量" })).toHaveValue("6");
+    expect(screen.getByLabelText("芯片数量摘要")).toHaveTextContent("芯片数量：6");
+    expect(screen.getByLabelText("芯片数量摘要")).toHaveTextContent("位置数量：6");
+    expect(screen.getByLabelText("芯片数量摘要")).toHaveTextContent("点位数量：12");
+    expect(screen.getAllByText(/^位置 \d+$/)).toHaveLength(6);
+    expect(screen.getByText("P1/P2")).toBeInTheDocument();
+    expect(screen.getByText("P11/P12")).toBeInTheDocument();
+
+    const countOptions = within(screen.getByRole("combobox", { name: "芯片数量" })).getAllByRole("option");
+    expect(countOptions.map((option) => option.textContent)).toEqual(["4", "5", "6", "7", "8", "9", "10"]);
 
     const firstSelect = screen.getByLabelText("位置 1 芯片类型");
     expect(within(firstSelect).getAllByRole("option")).toHaveLength(36);
@@ -76,6 +89,67 @@ describe("Forward workflow", () => {
     await user.click(inlet2);
     expect(inlet1).not.toBeChecked();
     expect(inlet2).toBeChecked();
+  });
+
+  it("selecting 4 renders four positions and P1 through P8 only", async () => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "4");
+
+    expect(screen.getAllByText(/^位置 \d+$/)).toHaveLength(4);
+    expect(screen.getByText("P7/P8")).toBeInTheDocument();
+    expect(screen.queryByText("位置 5")).not.toBeInTheDocument();
+    expect(screen.queryByText("P9/P10")).not.toBeInTheDocument();
+  });
+
+  it("selecting 10 renders ten positions and P1 through P20", async () => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "10");
+
+    expect(screen.getAllByText(/^位置 \d+$/)).toHaveLength(10);
+    expect(screen.getByText("P19/P20")).toBeInTheDocument();
+  });
+
+  it("preserves visible rows when increasing count and creates new default rows", async () => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.clear(screen.getByLabelText("位置 1 左宽度"));
+    await user.type(screen.getByLabelText("位置 1 左宽度"), "9.99");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "8");
+
+    expect(screen.getByLabelText("位置 1 左宽度")).toHaveValue(9.99);
+    expect(screen.getByLabelText("位置 7 左宽度")).toHaveValue(null);
+    expect(screen.getByLabelText("位置 8 右弯曲直道距离")).toHaveValue(null);
+    expect(screen.getByLabelText("位置 7 芯片类型")).toHaveValue("1to1");
+  });
+
+  it("drops removed rows and does not restore their old data when increasing again", async () => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "8");
+    await user.clear(screen.getByLabelText("位置 6 左宽度"));
+    await user.type(screen.getByLabelText("位置 6 左宽度"), "8.88");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "5");
+
+    expect(screen.getAllByText(/^位置 \d+$/)).toHaveLength(5);
+    expect(screen.queryByLabelText("位置 6 左宽度")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "8");
+    expect(screen.getByLabelText("位置 6 左宽度")).toHaveValue(null);
+    expect(screen.getByLabelText("位置 6 芯片类型")).toHaveValue("1to1");
   });
 
   it("blocks invalid frontend input without calling forward API", async () => {
@@ -91,9 +165,9 @@ describe("Forward workflow", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("opens confirmation without calling API, then submits once and shows results", async () => {
+  it("opens confirmation without calling API, then submits chip_count=6 once and shows results", async () => {
     const user = userEvent.setup();
-    const fetchMock = mockFetch(jsonResponse(statusReady), jsonResponse(successPayload));
+    const fetchMock = mockFetch(jsonResponse(statusReady), jsonResponse(successPayload()));
     renderApp("/forward");
 
     await screen.findByText("模型已就绪，ensemble=5");
@@ -108,6 +182,56 @@ describe("Forward workflow", () => {
     expect(screen.getByRole("columnheader", { name: "Seed 42" })).toBeInTheDocument();
     expect(screen.getByText("0.123457")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    expect(request.chip_count).toBe(6);
+    expect(request.chips).toHaveLength(6);
+  });
+
+  it("does not call forward API for non-six chip counts", async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetch(jsonResponse(statusReady));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "4");
+    await user.click(screen.getByRole("button", { name: "确认参数" }));
+
+    expect(screen.getByRole("dialog", { name: "确认正向预测参数" })).toBeInTheDocument();
+    expect(screen.getAllByText("当前模型仅支持6个芯片。其他芯片数量将在可变节点模型接入后开放。")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "运行预测" })).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows dedicated message for backend unsupported chip count error", async () => {
+    const user = userEvent.setup();
+    mockFetch(
+      jsonResponse(statusReady),
+      jsonResponse({ error: { code: "UNSUPPORTED_CHIP_COUNT", message: "C:\\private\\trace" } }, 422),
+    );
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.click(screen.getByRole("button", { name: "确认参数" }));
+    await user.click(screen.getByRole("button", { name: "运行预测" }));
+
+    expect(await screen.findByText("当前模型仅支持6个芯片。其他芯片数量将在可变节点模型接入后开放。")).toBeInTheDocument();
+    expect(screen.queryByText(/private/)).not.toBeInTheDocument();
+  });
+
+  it("renders prediction results using the response length", async () => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady), jsonResponse(successPayload(3)));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.click(screen.getByRole("button", { name: "确认参数" }));
+    await user.click(screen.getByRole("button", { name: "运行预测" }));
+
+    await screen.findByRole("heading", { name: "预测结果" });
+    expect(screen.getByText("y1")).toBeInTheDocument();
+    expect(screen.getByText("y3")).toBeInTheDocument();
+    expect(screen.queryByText("y4")).not.toBeInTheDocument();
   });
 
   it("prevents duplicate prediction submits while loading", async () => {
@@ -128,7 +252,7 @@ describe("Forward workflow", () => {
     expect(screen.getByText("正向模型处理中")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    resolveForward(jsonResponse(successPayload));
+    resolveForward(jsonResponse(successPayload()));
     expect(await screen.findByRole("heading", { name: "预测结果" })).toBeInTheDocument();
   });
 
@@ -163,9 +287,9 @@ describe("Forward workflow", () => {
     expect(screen.queryByText(/private/)).not.toBeInTheDocument();
   });
 
-  it("keeps current input when returning from results", async () => {
+  it("keeps current visible input when returning from results", async () => {
     const user = userEvent.setup();
-    mockFetch(jsonResponse(statusReady), jsonResponse(successPayload));
+    mockFetch(jsonResponse(statusReady), jsonResponse(successPayload()));
     renderApp("/forward");
 
     await screen.findByText("模型已就绪，ensemble=5");
@@ -177,6 +301,22 @@ describe("Forward workflow", () => {
     await user.click(screen.getByRole("button", { name: "返回编辑" }));
 
     expect(screen.getByLabelText("样本名称")).toHaveValue("sample-a");
+  });
+
+  it("restore example resets chip_count to 6 and current example values", async () => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "10");
+    await user.clear(screen.getByLabelText("样本名称"));
+    await user.type(screen.getByLabelText("样本名称"), "changed");
+    await user.click(screen.getByRole("button", { name: "恢复示例" }));
+
+    expect(screen.getByRole("combobox", { name: "芯片数量" })).toHaveValue("6");
+    expect(screen.getByLabelText("样本名称")).toHaveValue("DP 0");
+    expect(screen.getAllByText(/^位置 \d+$/)).toHaveLength(6);
   });
 });
 

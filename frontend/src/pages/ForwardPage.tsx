@@ -3,9 +3,13 @@ import { Link } from "react-router-dom";
 import { ApiClientError, getModelStatus, runForwardPrediction } from "../api/client";
 import type { ForwardPredictionRequest, ForwardPredictionResponse, ModelStatusResponse } from "../api/types";
 import {
+  CHIP_COUNT_OPTIONS,
   CHIP_TYPE_OPTIONS,
+  CURRENT_MODEL_CHIP_COUNT,
+  MODEL_LIMIT_MESSAGE,
   cloneExampleForm,
   emptyEditableForm,
+  resizeChipRows,
   type ChipFormRow,
   type ForwardFormState,
 } from "../domain/forward";
@@ -56,6 +60,23 @@ export function ForwardPage() {
   const modelReady = modelStatus.state === "ready";
   const seedHeaders = result?.ensemble_seeds ?? [];
 
+  function clearTransientState() {
+    setErrors([]);
+    setPendingPayload(null);
+    setResult(null);
+    setApiError(null);
+    setIsSubmitting(false);
+  }
+
+  function updateChipCount(chipCount: number) {
+    setForm((current) => ({
+      ...current,
+      chip_count: chipCount,
+      chips: resizeChipRows(current.chips, chipCount),
+    }));
+    clearTransientState();
+  }
+
   function updateChip(position: number, field: keyof ChipFormRow, value: string) {
     setForm((current) => ({
       ...current,
@@ -76,6 +97,10 @@ export function ForwardPage() {
 
   async function submitPrediction() {
     if (!pendingPayload || isSubmitting) {
+      return;
+    }
+    if (pendingPayload.chip_count !== CURRENT_MODEL_CHIP_COUNT) {
+      setApiError(MODEL_LIMIT_MESSAGE);
       return;
     }
     setIsSubmitting(true);
@@ -110,7 +135,7 @@ export function ForwardPage() {
       <div className="section-heading compact">
         <p className="eyebrow">Forward prediction</p>
         <h1>正向预测</h1>
-        <p>固定六个芯片位置，提交参数后调用后端正向模型。</p>
+        <p>选择芯片数量并配置各位置参数。当前真实模型仅支持6个芯片。</p>
       </div>
 
       <div className={`status-banner ${modelReady ? "ready" : "blocked"}`} role="status">
@@ -148,18 +173,17 @@ export function ForwardPage() {
           form={form}
           disabled={isSubmitting}
           modelReady={modelReady}
+          onChipCountChange={updateChipCount}
           onSampleNameChange={(value) => setForm((current) => ({ ...current, sample_name: value }))}
           onInletModeChange={(value) => setForm((current) => ({ ...current, inletMode: value }))}
           onChipChange={updateChip}
           onRestoreExample={() => {
             setForm(cloneExampleForm());
-            setErrors([]);
-            setApiError(null);
+            clearTransientState();
           }}
           onClear={() => {
             setForm((current) => emptyEditableForm(current));
-            setErrors([]);
-            setApiError(null);
+            clearTransientState();
           }}
           onConfirm={confirmParameters}
         />
@@ -182,6 +206,7 @@ interface FormViewProps {
   form: ForwardFormState;
   disabled: boolean;
   modelReady: boolean;
+  onChipCountChange: (value: number) => void;
   onSampleNameChange: (value: string) => void;
   onInletModeChange: (value: "inlet1" | "inlet2") => void;
   onChipChange: (position: number, field: keyof ChipFormRow, value: string) => void;
@@ -194,6 +219,7 @@ function FormView({
   form,
   disabled,
   modelReady,
+  onChipCountChange,
   onSampleNameChange,
   onInletModeChange,
   onChipChange,
@@ -201,6 +227,7 @@ function FormView({
   onClear,
   onConfirm,
 }: FormViewProps) {
+  const canPredict = form.chip_count === CURRENT_MODEL_CHIP_COUNT;
   return (
     <form
       className="tool-panel"
@@ -210,7 +237,7 @@ function FormView({
         onConfirm();
       }}
     >
-      <div className="form-grid">
+      <div className="form-grid form-grid-wide">
         <label>
           样本名称
           <input
@@ -220,6 +247,26 @@ function FormView({
             onChange={(event) => onSampleNameChange(event.target.value)}
           />
         </label>
+        <label>
+          芯片数量
+          <select
+            aria-label="芯片数量"
+            value={form.chip_count}
+            disabled={disabled}
+            onChange={(event) => onChipCountChange(Number(event.target.value))}
+          >
+            {CHIP_COUNT_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="chip-count-summary" aria-label="芯片数量摘要">
+          <span>芯片数量：{form.chip_count}</span>
+          <span>位置数量：{form.chips.length}</span>
+          <span>点位数量：{form.chip_count * 2}</span>
+        </div>
         <fieldset className="segmented" disabled={disabled}>
           <legend>入口设置</legend>
           <label>
@@ -242,6 +289,12 @@ function FormView({
           </label>
         </fieldset>
       </div>
+
+      {!canPredict ? (
+        <div className="message inline-warning" role="note">
+          {MODEL_LIMIT_MESSAGE}
+        </div>
+      ) : null}
 
       <div className="table-wrap">
         <table className="input-table">
@@ -363,19 +416,25 @@ interface ConfirmDialogProps {
 }
 
 function ConfirmDialog({ payload, isSubmitting, onCancel, onSubmit }: ConfirmDialogProps) {
+  const canSubmit = payload.chip_count === CURRENT_MODEL_CHIP_COUNT;
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <div className="modal">
         <h2 id="confirm-title">确认正向预测参数</h2>
         <p>
           样本 {payload.sample_name}，{payload.inlet1 === 1 ? "inlet1=1, inlet2=0" : "inlet1=0, inlet2=1"}，
-          共 {payload.chips.length} 个位置。
+          共 {payload.chips.length} 个位置，{payload.chip_count * 2} 个点位。
         </p>
+        {!canSubmit ? (
+          <div className="message inline-warning" role="note">
+            {MODEL_LIMIT_MESSAGE}
+          </div>
+        ) : null}
         <div className="action-row">
           <button type="button" className="button secondary" disabled={isSubmitting} onClick={onCancel}>
             返回编辑
           </button>
-          <button type="button" className="button primary" disabled={isSubmitting} onClick={onSubmit}>
+          <button type="button" className="button primary" disabled={isSubmitting || !canSubmit} onClick={onSubmit}>
             运行预测
           </button>
         </div>
@@ -426,9 +485,9 @@ function ResultsView({ result, seedHeaders, onBackToEdit, onRerun }: ResultsView
             </tr>
           </thead>
           <tbody>
-            {result.predictions.map((item) => (
-              <tr key={item.position}>
-                <td>位置 {item.position}</td>
+            {result.predictions.map((item, index) => (
+              <tr key={`${item.position}-${item.point}-${index}`}>
+                <td>位置 {item.position || index + 1}</td>
                 <td>{item.point}</td>
                 <td>{item.chip_type}</td>
                 <td>{formatNumber(item.mean)}</td>
