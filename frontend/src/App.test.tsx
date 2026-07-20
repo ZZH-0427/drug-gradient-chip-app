@@ -117,7 +117,22 @@ describe("Forward workflow", () => {
     expect(screen.getByText("P19/P20")).toBeInTheDocument();
   });
 
-  it("preserves visible rows when increasing count and creates new default rows", async () => {
+  it("uses the unified default parameter template when increasing from 6 to 7", async () => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady));
+    renderApp("/forward");
+
+    await screen.findByText("模型已就绪，ensemble=5");
+    await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "7");
+
+    expect(screen.getByLabelText("位置 7 芯片类型")).toHaveValue("5to4");
+    expect(screen.getByLabelText("位置 7 左宽度")).toHaveValue(0.261);
+    expect(screen.getByLabelText("位置 7 右宽度")).toHaveValue(0.138);
+    expect(screen.getByLabelText("位置 7 左弯曲直道距离")).toHaveValue(31);
+    expect(screen.getByLabelText("位置 7 右弯曲直道距离")).toHaveValue(25);
+  });
+
+  it("preserves visible rows when increasing count and creates independent default rows", async () => {
     const user = userEvent.setup();
     mockFetch(jsonResponse(statusReady));
     renderApp("/forward");
@@ -128,9 +143,15 @@ describe("Forward workflow", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "8");
 
     expect(screen.getByLabelText("位置 1 左宽度")).toHaveValue(9.99);
-    expect(screen.getByLabelText("位置 7 左宽度")).toHaveValue(null);
-    expect(screen.getByLabelText("位置 8 右弯曲直道距离")).toHaveValue(null);
-    expect(screen.getByLabelText("位置 7 芯片类型")).toHaveValue("1to1");
+    expect(screen.getByLabelText("位置 7 左宽度")).toHaveValue(0.261);
+    expect(screen.getByLabelText("位置 8 左宽度")).toHaveValue(0.261);
+    expect(screen.getByLabelText("位置 7 芯片类型")).toHaveValue("5to4");
+    expect(screen.getByLabelText("位置 8 芯片类型")).toHaveValue("5to4");
+
+    await user.clear(screen.getByLabelText("位置 7 左宽度"));
+    await user.type(screen.getByLabelText("位置 7 左宽度"), "7.77");
+    expect(screen.getByLabelText("位置 7 左宽度")).toHaveValue(7.77);
+    expect(screen.getByLabelText("位置 8 左宽度")).toHaveValue(0.261);
   });
 
   it("drops removed rows and does not restore their old data when increasing again", async () => {
@@ -148,8 +169,10 @@ describe("Forward workflow", () => {
     expect(screen.queryByLabelText("位置 6 左宽度")).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "芯片数量" }), "8");
-    expect(screen.getByLabelText("位置 6 左宽度")).toHaveValue(null);
-    expect(screen.getByLabelText("位置 6 芯片类型")).toHaveValue("1to1");
+    expect(screen.getByLabelText("位置 6 左宽度")).toHaveValue(0.261);
+    expect(screen.getByLabelText("位置 7 左宽度")).toHaveValue(0.261);
+    expect(screen.getByLabelText("位置 8 左宽度")).toHaveValue(0.261);
+    expect(screen.getByLabelText("位置 6 芯片类型")).toHaveValue("5to4");
   });
 
   it("blocks invalid frontend input without calling forward API", async () => {
@@ -317,6 +340,10 @@ describe("Forward workflow", () => {
     expect(screen.getByRole("combobox", { name: "芯片数量" })).toHaveValue("6");
     expect(screen.getByLabelText("样本名称")).toHaveValue("DP 0");
     expect(screen.getAllByText(/^位置 \d+$/)).toHaveLength(6);
+    expect(screen.getByLabelText("位置 1 芯片类型")).toHaveValue("5to4");
+    expect(screen.getByLabelText("位置 6 芯片类型")).toHaveValue("3to1");
+    expect(screen.getByLabelText("位置 6 左宽度")).toHaveValue(0.05);
+    expect(screen.getByRole("radio", { name: "inlet1=1, inlet2=0" })).toBeChecked();
   });
 });
 

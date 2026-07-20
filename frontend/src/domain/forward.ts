@@ -30,6 +30,14 @@ export const CHIP_TYPE_OPTIONS = Array.from({ length: 6 }, (_, leftIndex) =>
   Array.from({ length: 6 }, (_, rightIndex) => `${leftIndex + 1}to${rightIndex + 1}`),
 ).flat();
 
+export const DEFAULT_CHIP_ROW_PARAMETERS = {
+  chip_type: "5to4",
+  left_width_mm: "0.261",
+  right_width_mm: "0.138",
+  left_bend_straight_distance_mm: "31",
+  right_bend_straight_distance_mm: "25",
+} satisfies Omit<ChipFormRow, "position" | "point_left" | "point_right">;
+
 export function pointLabelsForPosition(position: number): [string, string] {
   return [`P${position * 2 - 1}`, `P${position * 2}`];
 }
@@ -40,11 +48,7 @@ export function createDefaultChipRow(position: number): ChipFormRow {
     position,
     point_left,
     point_right,
-    chip_type: "1to1",
-    left_width_mm: "",
-    right_width_mm: "",
-    left_bend_straight_distance_mm: "",
-    right_bend_straight_distance_mm: "",
+    ...DEFAULT_CHIP_ROW_PARAMETERS,
   };
 }
 
