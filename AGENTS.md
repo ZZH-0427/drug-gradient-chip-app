@@ -2,8 +2,7 @@
 
 ## Project Goal
 
-Wrap the existing forward model, and later the reverse model, as a visualizable
-application runtime.
+Wrap the existing forward model as a visualizable application runtime.
 
 ## Current Stage
 
