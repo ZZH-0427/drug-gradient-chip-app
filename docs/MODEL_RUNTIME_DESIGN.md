@@ -2,9 +2,13 @@
 
 ## Application Schema
 
-The application accepts `ForwardPredictionRequest`: one sample name, two inlet
-values, and exactly six chip entries. Positions must be 1 through 6 without
-duplicates. All numeric values must be finite.
+The application accepts `ForwardPredictionRequest`: one sample name, an optional
+`chip_count`, two inlet values, and chip entries. During the transition version,
+`chip_count` may be 4 through 10 and defaults to 6 for old requests. The chip
+entry count must equal `chip_count`; positions must be consecutive from 1 through
+`chip_count` without duplicates. All numeric values must be finite.
+
+The current forward model can run real inference only when `chip_count=6`.
 
 ## CSV Adapter
 
@@ -51,8 +55,8 @@ and computes:
 
 ## Output Mapping
 
-`result_mapper.py` converts NumPy values into plain Python floats and returns six
-ordered predictions: `y1` through `y6`.
+`result_mapper.py` converts NumPy values into plain Python floats. With the
+current fixed model it returns six ordered predictions: `y1` through `y6`.
 
 ## Errors
 
@@ -67,14 +71,9 @@ Runtime errors use structured codes:
 
 Upper layers should return these codes without exposing full Python stack traces.
 
-## Future FastAPI Use
+## FastAPI Use
 
-A future route should create one `ForwardModelAdapter` during application startup
-and reuse it for requests. Route handlers should only validate HTTP payloads,
-call `adapter.predict(request)`, and map structured errors to HTTP responses.
-
-## Future Reverse Model
-
-The reverse model should be added as a separate adapter with its own schema,
-loader, tests, and golden samples. It should not reuse forward-specific graph or
-output assumptions unless explicitly verified.
+The application creates one `ForwardModelAdapter` during startup and reuses it
+for requests. Route handlers validate HTTP payloads, reject non-six chip counts
+before calling the adapter, call `adapter.predict(request)` only for supported
+six-chip requests, and map structured errors to HTTP responses.

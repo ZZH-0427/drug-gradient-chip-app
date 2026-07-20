@@ -16,6 +16,8 @@
 - Forward prediction frontend MVP added under `frontend/`.
 - Single-port local delivery mode added through FastAPI static frontend serving.
 - Local start, stop, and status scripts added.
+- The inverse workflow has been formally removed from the product scope.
+- Dynamic chip-count request and frontend form structure added for 4 to 10 chips.
 
 ## Current Run Mode
 
@@ -55,7 +57,7 @@ http://127.0.0.1:8000
 python -m pytest -q
 ```
 
-Latest backend result:
+Latest backend result before the dynamic chip-count transition:
 
 ```text
 35 passed, 1 skipped
@@ -74,7 +76,7 @@ npm run test:run
 npm run build
 ```
 
-Latest frontend result:
+Latest frontend result before the dynamic chip-count transition:
 
 ```text
 15 passed
@@ -96,7 +98,10 @@ maximum absolute tolerance of `1e-6`.
 ## Known Limits
 
 - Runtime `.pt` assets are local files ignored by Git and must be provisioned.
-- No reverse model logic exists in this stage.
+- The current forward model supports real inference for exactly 6 chips.
+- The transition UI can configure 4 to 10 chips, but non-six counts cannot run
+  prediction until the variable-node model is delivered.
+- The inverse workflow is cancelled and is no longer listed as a future task.
 - Browser interaction is not covered by the unit test suite.
 - Windows EXE/installers, services, Docker, and cloud deployment are not
   implemented.
@@ -105,4 +110,5 @@ maximum absolute tolerance of `1e-6`.
 
 - Decide the long-term distribution mechanism for model assets, such as a
   controlled artifact store or release process.
-- Integrate the reverse model when its runtime contract is available.
+- Integrate the future variable-node forward model for real 4 to 10 chip
+  inference when that model is delivered.

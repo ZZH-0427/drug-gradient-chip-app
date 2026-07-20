@@ -240,6 +240,7 @@ print(json.dumps(items, sort_keys=True))
 function Write-ValidationPayload([string]$Path) {
     $payload = @{
         sample_name = "portable-validation"
+        chip_count = 6
         inlet1 = 1.0
         inlet2 = 0.0
         chips = @(
@@ -672,6 +673,8 @@ Stop:
 This package contains its own Python runtime and bundled forward model assets.
 End users do not need Conda, Python, Node.js, npm, or the original model repository.
 Portable mode always uses bundled assets and CPU by default.
+The application provides forward prediction only. The transition UI can configure
+4 to 10 chips, but this packaged model runs real prediction only for 6 chips.
 On first start, the package relocates its runtime for the current directory.
 Do not move a directory after it has been started. To migrate the app, extract
 the original ZIP again at the target location.

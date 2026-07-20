@@ -18,8 +18,8 @@ Out of scope for this stage:
 
 - Training.
 - Modifying the original model repository.
-- Reverse model logic.
 - Mock prediction results.
+- The inverse workflow is outside the product scope.
 
 ## Model Assets
 
@@ -78,7 +78,8 @@ The frontend reads `VITE_API_BASE_URL`; the default development value is:
 http://127.0.0.1:8000
 ```
 
-Reverse prediction is not implemented yet.
+The application provides forward prediction only. The inverse workflow is not
+part of the product scope.
 
 ## Runtime Usage
 
@@ -90,6 +91,7 @@ adapter = ForwardModelAdapter()
 result = adapter.predict(
     ForwardPredictionRequest(
         sample_name="DP 0",
+        chip_count=6,
         inlet1=1.0,
         inlet2=0.0,
         chips=[...],
@@ -150,6 +152,7 @@ Forward prediction:
 ```powershell
 $body = @{
   sample_name = "DP 0"
+  chip_count = 6
   inlet1 = 1.0
   inlet2 = 0.0
   chips = @(
@@ -232,9 +235,14 @@ Frontend URL:
 http://127.0.0.1:5173
 ```
 
-The forward page checks `/api/v1/model-status`, validates six fixed chip
-positions, confirms parameters, and calls `/api/v1/forward`. The reverse page is
-a placeholder because the reverse model is not integrated.
+The forward page checks `/api/v1/model-status`, lets users select 4 to 10 chips,
+generates one position and two point labels for each chip, validates parameters,
+confirms parameters, and calls `/api/v1/forward` only when `chip_count=6`.
+
+This is a transition version. The current bundled model still supports real
+inference for exactly six chips. Non-six chip counts can be configured and
+confirmed in the UI, but prediction is blocked until the future variable-node
+model is integrated. The default chip count is 6.
 
 Frontend verification commands:
 
@@ -389,8 +397,8 @@ On first start after extraction, the portable launcher runs the bundled
 migrate the application, extract the original ZIP again at the target location.
 
 The build script validates the package by starting it without Vite, checking
-`/`, `/forward`, `/reverse`, `/api/v1/health`, `/api/v1/model-status`, and a real
-`/api/v1/forward` request. It validates fresh ZIP extractions in a normal path
+`/`, `/forward`, the `/reverse` Not Found route, `/api/v1/health`,
+`/api/v1/model-status`, and a real `/api/v1/forward` request. It validates fresh ZIP extractions in a normal path
 and a path containing spaces and non-ASCII characters, then verifies that moving
 an already initialized directory is rejected. If `conda-pack` relocation fails,
 do not replace it with a raw Conda environment copy; keep the diagnostics and
