@@ -143,6 +143,116 @@ def test_forward_with_fake_adapter_returns_six_predictions() -> None:
     }
 
 
+def test_forward_with_explicit_six_chip_count_returns_six_predictions() -> None:
+    payload = sample_payload()
+    payload["chip_count"] = 6
+
+    with TestClient(create_app(adapter_factory=FakeForwardAdapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 200
+    assert len(response.json()["predictions"]) == 6
+
+
+@pytest.mark.parametrize("chip_count", [4, 10])
+def test_forward_rejects_supported_future_chip_counts_before_adapter_call(chip_count: int) -> None:
+    adapter = FakeForwardAdapter()
+    payload = sample_payload()
+    payload["chip_count"] = chip_count
+    payload["chips"] = payload["chips"][:chip_count]
+    while len(payload["chips"]) < chip_count:
+        position = len(payload["chips"]) + 1
+        payload["chips"].append(
+            {
+                "position": position,
+                "chip_type": "1to1",
+                "left_width_mm": 0.1 + position,
+                "right_width_mm": 0.2 + position,
+                "left_bend_straight_distance_mm": 10.0 + position,
+                "right_bend_straight_distance_mm": 20.0 + position,
+            }
+        )
+    for index, chip in enumerate(payload["chips"], start=1):
+        assert isinstance(chip, dict)
+        chip["position"] = index
+
+    with TestClient(create_app(adapter_factory=lambda: adapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body == {
+        "error": {
+            "code": "UNSUPPORTED_CHIP_COUNT",
+            "message": "当前模型仅支持6个芯片。其他数量将在可变节点模型接入后开放。",
+        }
+    }
+    assert adapter.predict_calls == 0
+    assert "pytorch_geometric-master" not in response.text
+    assert "best_ablation_checkpoint.pt" not in response.text
+
+
+@pytest.mark.parametrize("chip_count", [3, 11])
+def test_forward_rejects_out_of_range_chip_count_as_schema_error(chip_count: int) -> None:
+    payload = sample_payload()
+    payload["chip_count"] = chip_count
+
+    with TestClient(create_app(adapter_factory=FakeForwardAdapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 422
+    assert "UNSUPPORTED_CHIP_COUNT" not in response.text
+
+
+def test_forward_rejects_six_chip_count_with_five_rows_as_schema_error() -> None:
+    payload = sample_payload()
+    payload["chip_count"] = 6
+    payload["chips"] = payload["chips"][:5]
+
+    with TestClient(create_app(adapter_factory=FakeForwardAdapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 422
+    assert "UNSUPPORTED_CHIP_COUNT" not in response.text
+
+
+def test_forward_rejects_chip_count_mismatch_as_schema_error() -> None:
+    payload = sample_payload()
+    payload["chip_count"] = 4
+
+    with TestClient(create_app(adapter_factory=FakeForwardAdapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 422
+    assert "UNSUPPORTED_CHIP_COUNT" not in response.text
+
+
+def test_forward_rejects_non_consecutive_positions_as_schema_error() -> None:
+    payload = sample_payload()
+    chips = payload["chips"]
+    assert isinstance(chips, list)
+    assert isinstance(chips[-1], dict)
+    chips[-1]["position"] = 8
+
+    with TestClient(create_app(adapter_factory=FakeForwardAdapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_forward_rejects_duplicate_positions_as_schema_error() -> None:
+    payload = sample_payload()
+    chips = payload["chips"]
+    assert isinstance(chips, list)
+    assert isinstance(chips[-1], dict)
+    chips[-1]["position"] = 5
+
+    with TestClient(create_app(adapter_factory=FakeForwardAdapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 422
+
+
 def test_invalid_forward_input_returns_422() -> None:
     payload = sample_payload()
     payload["chips"] = []

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_forward_model_state
+from app.core.chip_count import CURRENT_MODEL_CHIP_COUNT
 from app.core.errors import ModelErrorCode, ModelRuntimeError
 from app.core.model_state import ForwardModelState
 from app.schemas.common import ErrorResponse
@@ -29,6 +30,18 @@ def predict_forward(
     request: ForwardPredictionRequest,
     model_state: ForwardModelState = Depends(get_forward_model_state),
 ) -> ForwardPredictionResponse:
+    if request.chip_count != CURRENT_MODEL_CHIP_COUNT:
+        logger.info("Rejected unsupported chip_count=%s for forward prediction.", request.chip_count)
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "UNSUPPORTED_CHIP_COUNT",
+                    "message": "当前模型仅支持6个芯片。其他数量将在可变节点模型接入后开放。",
+                }
+            },
+        )
+
     if not model_state.ready or model_state.adapter is None:
         return JSONResponse(
             status_code=503,

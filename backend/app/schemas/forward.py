@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from app.core.chip_count import CURRENT_MODEL_CHIP_COUNT, MAX_CHIP_COUNT, MIN_CHIP_COUNT
+
 
 def _finite_float(value: Any, field_name: str) -> float:
     number = float(value)
@@ -26,7 +28,7 @@ if Field is not None:
     class ForwardChipInput(BaseModel):
         model_config = ConfigDict(extra="forbid")
 
-        position: int = Field(ge=1, le=6)
+        position: int = Field(ge=1, le=MAX_CHIP_COUNT)
         chip_type: str = Field(min_length=1)
         left_width_mm: float
         right_width_mm: float
@@ -49,6 +51,7 @@ if Field is not None:
         model_config = ConfigDict(extra="forbid")
 
         sample_name: str = Field(min_length=1)
+        chip_count: int = Field(default=CURRENT_MODEL_CHIP_COUNT, ge=MIN_CHIP_COUNT, le=MAX_CHIP_COUNT)
         inlet1: float
         inlet2: float
         chips: list[ForwardChipInput]
@@ -60,11 +63,12 @@ if Field is not None:
 
         @model_validator(mode="after")
         def validate_chips(self) -> "ForwardPredictionRequest":
-            if len(self.chips) != 6:
-                raise ValueError("chips must contain exactly 6 items")
+            if len(self.chips) != self.chip_count:
+                raise ValueError("chips length must equal chip_count")
             positions = [chip.position for chip in self.chips]
-            if sorted(positions) != [1, 2, 3, 4, 5, 6]:
-                raise ValueError("chips positions must be exactly 1 through 6 without duplicates")
+            expected_positions = list(range(1, self.chip_count + 1))
+            if sorted(positions) != expected_positions:
+                raise ValueError("chips positions must be consecutive from 1 through chip_count without duplicates")
             return self
 
         def chips_by_position(self) -> list[ForwardChipInput]:
@@ -132,8 +136,8 @@ else:
             right_bend_straight_distance_mm: Any,
         ) -> None:
             self.position = int(position)
-            if self.position < 1 or self.position > 6:
-                raise ValueError("position must be 1 through 6")
+            if self.position < 1 or self.position > MAX_CHIP_COUNT:
+                raise ValueError("position must be 1 through 10")
             self.chip_type = str(chip_type).strip()
             if not self.chip_type:
                 raise ValueError("chip_type must not be empty")
@@ -150,21 +154,32 @@ else:
 
 
     class ForwardPredictionRequest(_DumpMixin):
-        def __init__(self, *, sample_name: str, inlet1: Any, inlet2: Any, chips: list[Any]) -> None:
+        def __init__(
+            self,
+            *,
+            sample_name: str,
+            inlet1: Any,
+            inlet2: Any,
+            chips: list[Any],
+            chip_count: Any = CURRENT_MODEL_CHIP_COUNT,
+        ) -> None:
             self.sample_name = str(sample_name).strip()
             if not self.sample_name:
                 raise ValueError("sample_name must not be empty")
+            self.chip_count = int(chip_count)
+            if self.chip_count < MIN_CHIP_COUNT or self.chip_count > MAX_CHIP_COUNT:
+                raise ValueError("chip_count must be between 4 and 10")
             self.inlet1 = _finite_float(inlet1, "inlet1")
             self.inlet2 = _finite_float(inlet2, "inlet2")
             self.chips = [
                 chip if isinstance(chip, ForwardChipInput) else ForwardChipInput(**chip)
                 for chip in chips
             ]
-            if len(self.chips) != 6:
-                raise ValueError("chips must contain exactly 6 items")
+            if len(self.chips) != self.chip_count:
+                raise ValueError("chips length must equal chip_count")
             positions = [chip.position for chip in self.chips]
-            if sorted(positions) != [1, 2, 3, 4, 5, 6]:
-                raise ValueError("chips positions must be exactly 1 through 6 without duplicates")
+            if sorted(positions) != list(range(1, self.chip_count + 1)):
+                raise ValueError("chips positions must be consecutive from 1 through chip_count without duplicates")
 
         def chips_by_position(self) -> list[ForwardChipInput]:
             return sorted(self.chips, key=lambda chip: chip.position)
