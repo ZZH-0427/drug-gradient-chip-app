@@ -1,7 +1,7 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import { ForwardPage } from "./pages/ForwardPage";
 import { HomePage } from "./pages/HomePage";
-import { ReversePlaceholderPage } from "./pages/ReversePlaceholderPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 export default function App() {
   return (
@@ -12,14 +12,13 @@ export default function App() {
         </NavLink>
         <nav aria-label="主导航">
           <NavLink to="/forward">正向预测</NavLink>
-          <NavLink to="/reverse">反向预测</NavLink>
         </nav>
       </header>
       <main>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/forward" element={<ForwardPage />} />
-          <Route path="/reverse" element={<ReversePlaceholderPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
     </div>
