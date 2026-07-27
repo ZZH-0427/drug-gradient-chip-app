@@ -3,6 +3,9 @@ import type {
   ForwardPredictionRequest,
   ForwardPredictionResponse,
   ModelStatusResponse,
+  ReverseDesignRequest,
+  ReverseTaskCreatedResponse,
+  ReverseTaskStatusResponse,
 } from "./types";
 import { resolveApiBaseUrl } from "./baseUrl";
 import { MODEL_LIMIT_MESSAGE } from "../domain/forward";
@@ -19,6 +22,10 @@ export class ApiClientError extends Error {
       | "unsupported_chip_count"
       | "model_unavailable"
       | "inference_failure"
+      | "reverse_busy"
+      | "reverse_not_found"
+      | "reverse_not_cancellable"
+      | "reverse_failed"
       | "network"
       | "unexpected",
     message: string,
@@ -41,6 +48,24 @@ export async function runForwardPrediction(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export async function createReverseTask(
+  payload: ReverseDesignRequest,
+): Promise<ReverseTaskCreatedResponse> {
+  return request<ReverseTaskCreatedResponse>("/api/v1/reverse-tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getReverseTask(taskId: string): Promise<ReverseTaskStatusResponse> {
+  return request<ReverseTaskStatusResponse>(`/api/v1/reverse-tasks/${taskId}`, { method: "GET" });
+}
+
+export async function cancelReverseTask(taskId: string): Promise<ReverseTaskStatusResponse> {
+  return request<ReverseTaskStatusResponse>(`/api/v1/reverse-tasks/${taskId}`, { method: "DELETE" });
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -74,6 +99,18 @@ function mapError(status: number, payload: ApiErrorResponse | unknown): ApiClien
   const known = payload && typeof payload === "object" ? (payload as ApiErrorResponse).error : undefined;
   if (known?.code === "UNSUPPORTED_CHIP_COUNT") {
     return new ApiClientError("unsupported_chip_count", MODEL_LIMIT_MESSAGE, status);
+  }
+  if (known?.code === "REVERSE_TASK_BUSY") {
+    return new ApiClientError("reverse_busy", "已有反向设计任务正在运行，请等待完成或取消后再提交。", status);
+  }
+  if (known?.code === "REVERSE_TASK_NOT_FOUND") {
+    return new ApiClientError("reverse_not_found", "未找到反向设计任务。", status);
+  }
+  if (known?.code === "REVERSE_TASK_NOT_CANCELLABLE") {
+    return new ApiClientError("reverse_not_cancellable", "该反向设计任务当前不可取消。", status);
+  }
+  if (known?.code?.startsWith("REVERSE_")) {
+    return new ApiClientError("reverse_failed", known.message ?? "反向设计任务失败。", status);
   }
   if (status === 422) {
     return new ApiClientError("validation", "参数验证失败，请检查芯片参数。", status);

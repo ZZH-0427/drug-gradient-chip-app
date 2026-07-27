@@ -46,14 +46,14 @@ def create_app(
                 state = app_instance.state.forward_model
                 settings = getattr(adapter, "settings", None)
                 logger.info(
-                    "Forward model loaded successfully: ensemble_size=%s device=%s asset_source=%s",
-                    len(state.seeds or []),
+                    "Forward model loaded successfully: model=%s device=%s asset_source=%s",
+                    state.model_name,
                     state.device,
                     getattr(settings, "asset_source", "unknown"),
                 )
                 logging.getLogger("uvicorn.error").info(
-                    "Forward model loaded successfully: ensemble_size=%s device=%s asset_source=%s",
-                    len(state.seeds or []),
+                    "Forward model loaded successfully: model=%s device=%s asset_source=%s",
+                    state.model_name,
                     state.device,
                     getattr(settings, "asset_source", "unknown"),
                 )

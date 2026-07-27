@@ -332,6 +332,30 @@ th {
   min-width: 980px;
 }
 
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.results-panel {
+  margin-top: 18px;
+}
+
+.supporting-note {
+  margin: 10px 0 0;
+  color: #5e6b7c;
+}
+
+.sr-label {
+  display: block;
+  color: inherit;
+  font-weight: inherit;
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -422,7 +446,8 @@ button:disabled {
   }
 
   .module-grid,
-  .form-grid {
+  .form-grid,
+  .metric-grid {
     grid-template-columns: 1fr;
   }
 

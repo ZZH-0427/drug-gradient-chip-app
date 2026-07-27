@@ -27,7 +27,7 @@ export function validateForwardForm(form: ForwardFormState): ValidationResult {
     errors.push("样本名称不能为空。");
   }
   if (form.chip_count < MIN_CHIP_COUNT || form.chip_count > MAX_CHIP_COUNT) {
-    errors.push("芯片数量必须在4到10之间。");
+    errors.push("芯片数量必须在4到8之间。");
   }
   if (form.chips.length !== form.chip_count) {
     errors.push("芯片位置数量必须与芯片数量一致。");

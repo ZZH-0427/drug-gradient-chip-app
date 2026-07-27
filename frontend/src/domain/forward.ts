@@ -17,14 +17,14 @@ export interface ForwardFormState {
 }
 
 export const MIN_CHIP_COUNT = 4;
-export const MAX_CHIP_COUNT = 10;
+export const MAX_CHIP_COUNT = 8;
 export const CURRENT_MODEL_CHIP_COUNT = 6;
 export const CHIP_COUNT_OPTIONS = Array.from(
   { length: MAX_CHIP_COUNT - MIN_CHIP_COUNT + 1 },
   (_, index) => MIN_CHIP_COUNT + index,
 );
 export const MODEL_LIMIT_MESSAGE =
-  "当前模型仅支持6个芯片。其他芯片数量将在可变节点模型接入后开放。";
+  "当前正式模型仅支持 6 个芯片。其他数量将在正式可变节点模型接入后开放。";
 
 export const CHIP_TYPE_OPTIONS = Array.from({ length: 6 }, (_, leftIndex) =>
   Array.from({ length: 6 }, (_, rightIndex) => `${leftIndex + 1}to${rightIndex + 1}`),

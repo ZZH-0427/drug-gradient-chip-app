@@ -58,7 +58,6 @@ export function ForwardPage() {
   }, []);
 
   const modelReady = modelStatus.state === "ready";
-  const seedHeaders = result?.ensemble_seeds ?? [];
 
   function clearTransientState() {
     setErrors([]);
@@ -110,11 +109,7 @@ export function ForwardPage() {
       setResult(response);
       setPendingPayload(null);
     } catch (error: unknown) {
-      if (error instanceof ApiClientError) {
-        setApiError(error.message);
-      } else {
-        setApiError("正向预测执行失败，请稍后重试。");
-      }
+      setApiError(error instanceof ApiClientError ? error.message : "正向预测执行失败，请稍后重试。");
     } finally {
       setIsSubmitting(false);
     }
@@ -125,7 +120,7 @@ export function ForwardPage() {
       return "正在检查模型状态";
     }
     if (modelStatus.state === "ready") {
-      return `模型已就绪，ensemble=${modelStatus.data.ensemble_size}`;
+      return `模型已就绪，输出=${modelStatus.data.public_output}`;
     }
     return modelStatus.message;
   }, [modelStatus]);
@@ -159,7 +154,6 @@ export function ForwardPage() {
       {result ? (
         <ResultsView
           result={result}
-          seedHeaders={seedHeaders}
           onBackToEdit={() => setResult(null)}
           onRerun={() => {
             const validation = validateForwardForm(form);
@@ -445,12 +439,11 @@ function ConfirmDialog({ payload, isSubmitting, onCancel, onSubmit }: ConfirmDia
 
 interface ResultsViewProps {
   result: ForwardPredictionResponse;
-  seedHeaders: number[];
   onBackToEdit: () => void;
   onRerun: () => void;
 }
 
-function ResultsView({ result, seedHeaders, onBackToEdit, onRerun }: ResultsViewProps) {
+function ResultsView({ result, onBackToEdit, onRerun }: ResultsViewProps) {
   return (
     <div className="tool-panel">
       <div className="result-heading">
@@ -477,11 +470,7 @@ function ResultsView({ result, seedHeaders, onBackToEdit, onRerun }: ResultsView
               <th>位置</th>
               <th>点位</th>
               <th>芯片类型</th>
-              <th>mean</th>
-              <th>std</th>
-              {seedHeaders.map((seed) => (
-                <th key={seed}>Seed {seed}</th>
-              ))}
+              <th>浓度</th>
             </tr>
           </thead>
           <tbody>
@@ -490,11 +479,7 @@ function ResultsView({ result, seedHeaders, onBackToEdit, onRerun }: ResultsView
                 <td>位置 {item.position || index + 1}</td>
                 <td>{item.point}</td>
                 <td>{item.chip_type}</td>
-                <td>{formatNumber(item.mean)}</td>
-                <td>{formatNumber(item.std)}</td>
-                {seedHeaders.map((seed) => (
-                  <td key={seed}>{formatNumber(item.seed_values[String(seed)])}</td>
-                ))}
+                <td>{formatNumber(item.concentration)}</td>
               </tr>
             ))}
           </tbody>
