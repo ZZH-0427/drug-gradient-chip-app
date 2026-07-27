@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import json
+import os
+from pathlib import Path
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -57,6 +60,7 @@ def create_app(
                     state.device,
                     getattr(settings, "asset_source", "unknown"),
                 )
+                write_local_app_process_identity()
             except ModelRuntimeError as exc:
                 logger.exception("Forward model loading failed: %s", exc)
                 app_instance.state.forward_model = ForwardModelState.not_ready(
@@ -88,6 +92,28 @@ def create_app(
     fastapi_app.include_router(api_router)
     configure_frontend_serving(fastapi_app)
     return fastapi_app
+
+
+def write_local_app_process_identity() -> None:
+    token = os.getenv("LOCAL_APP_IDENTITY_TOKEN", "").strip()
+    identity_path = os.getenv("LOCAL_APP_IDENTITY_FILE", "").strip()
+    if not token or not identity_path:
+        return
+
+    path = Path(identity_path)
+    payload = {
+        "schema_version": 1,
+        "pid": os.getpid(),
+        "identity_token": token,
+        "application_root": os.getenv("LOCAL_APP_APPLICATION_ROOT", ""),
+        "app_module": os.getenv("LOCAL_APP_MODULE", ""),
+        "host": os.getenv("LOCAL_APP_HOST", ""),
+        "port": os.getenv("LOCAL_APP_PORT", ""),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
 
 
 def configure_frontend_serving(fastapi_app: FastAPI) -> None:

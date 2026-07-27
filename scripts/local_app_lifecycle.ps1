@@ -83,6 +83,50 @@ function Test-LocalAppCommandLineContains([string]$CommandLine, [string]$Needle)
     return $CommandLine.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
+function Test-LocalAppStateHasField([object]$State, [string]$Field) {
+    return $null -ne $State -and $null -ne (Get-Member -InputObject $State -Name $Field -MemberType NoteProperty)
+}
+
+function Test-LocalAppRuntimeIdentity {
+    param(
+        [Parameter(Mandatory = $true)] [object]$State,
+        [Parameter(Mandatory = $true)] [string]$Root
+    )
+
+    foreach ($field in @("identity_file", "identity_token")) {
+        if (-not (Test-LocalAppStateHasField -State $State -Field $field)) { return $false }
+    }
+    $identityFile = [string]$State.identity_file
+    $identityToken = [string]$State.identity_token
+    if ([string]::IsNullOrWhiteSpace($identityFile) -or [string]::IsNullOrWhiteSpace($identityToken)) {
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $identityFile)) { return $false }
+
+    try {
+        $identity = Get-Content -LiteralPath $identityFile -Raw | ConvertFrom-Json
+    } catch {
+        return $false
+    }
+
+    foreach ($field in @("pid", "identity_token", "application_root", "app_module", "host", "port")) {
+        if (-not (Test-LocalAppStateHasField -State $identity -Field $field)) { return $false }
+    }
+    if ([int]$identity.pid -ne [int]$State.pid) { return $false }
+    if (-not [string]::Equals([string]$identity.identity_token, $identityToken, [System.StringComparison]::Ordinal)) {
+        return $false
+    }
+    if (-not (Test-LocalAppPathEqual -Left ([string]$identity.application_root) -Right $Root)) { return $false }
+    if (-not [string]::Equals([string]$identity.app_module, [string]$State.app_module, [System.StringComparison]::Ordinal)) {
+        return $false
+    }
+    if (-not [string]::Equals([string]$identity.host, [string]$State.host, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+    if ([int]$identity.port -ne [int]$State.port) { return $false }
+    return $true
+}
+
 function Test-LocalAppProcessIdentity {
     param(
         [Parameter(Mandatory = $true)] [object]$State,
@@ -92,7 +136,7 @@ function Test-LocalAppProcessIdentity {
 
     if ($null -eq $State) { return $false }
     foreach ($field in @("pid", "process_start_time_utc", "executable_path", "application_root", "app_module", "host", "port")) {
-        if (-not (Get-Member -InputObject $State -Name $field -MemberType NoteProperty)) { return $false }
+        if (-not (Test-LocalAppStateHasField -State $State -Field $field)) { return $false }
     }
 
     $targetProcessId = [int]$State.pid
@@ -113,13 +157,17 @@ function Test-LocalAppProcessIdentity {
     }
 
     $commandLine = [string]$ProcessInfo.CommandLine
-    if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "-m uvicorn")) { return $false }
-    if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle ([string]$State.app_module))) { return $false }
-    if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "--host $($State.host)")) { return $false }
-    if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "--port $($State.port)")) { return $false }
-    if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "--app-dir")) { return $false }
-    if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle (ConvertTo-LocalAppNormalizedPath -Path ([string]$State.application_root)))) {
-        return $false
+    if ([string]::IsNullOrWhiteSpace($commandLine)) {
+        return Test-LocalAppRuntimeIdentity -State $State -Root $Root
+    } else {
+        if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "-m uvicorn")) { return $false }
+        if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle ([string]$State.app_module))) { return $false }
+        if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "--host $($State.host)")) { return $false }
+        if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "--port $($State.port)")) { return $false }
+        if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "--app-dir")) { return $false }
+        if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle (ConvertTo-LocalAppNormalizedPath -Path ([string]$State.application_root)))) {
+            return $false
+        }
     }
 
     return $true

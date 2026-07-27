@@ -62,6 +62,110 @@ Test-LocalAppProcessIdentity -State $state -Root "D:/Temp Path/药物芯片/" -P
     assert run_powershell(script, tmp_path) == "True"
 
 
+def test_lifecycle_identity_accepts_runtime_identity_when_command_line_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    identity_file = tmp_path / "app-process-identity.json"
+    script = f"""
+. "{COMMON_SCRIPT}"
+$root = "D:\\App"
+$identityFile = "{identity_file}"
+@{{
+  schema_version = 1
+  pid = 1234
+  identity_token = "token-1"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = "8000"
+}} | ConvertTo-Json | Set-Content -LiteralPath $identityFile -Encoding UTF8
+$state = [pscustomobject]@{{
+  pid = 1234
+  process_start_time_utc = "2026-07-27T04:00:00.0000000Z"
+  executable_path = "D:\\Tools\\python.exe"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = 8000
+  identity_file = $identityFile
+  identity_token = "token-1"
+}}
+$proc = [pscustomobject]@{{
+  ProcessId = 1234
+  CreationTimeUtc = "2026-07-27T04:00:00.5000000Z"
+  ExecutablePath = "D:\\Tools\\python.exe"
+  CommandLine = ""
+}}
+Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $proc
+"""
+
+    assert run_powershell(script, tmp_path) == "True"
+
+
+def test_lifecycle_identity_rejects_empty_command_line_without_runtime_identity(
+    tmp_path: Path,
+) -> None:
+    script = f"""
+. "{COMMON_SCRIPT}"
+$root = "D:\\App"
+$state = [pscustomobject]@{{
+  pid = 1234
+  process_start_time_utc = "2026-07-27T04:00:00.0000000Z"
+  executable_path = "D:\\Tools\\python.exe"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = 8000
+}}
+$proc = [pscustomobject]@{{
+  ProcessId = 1234
+  CreationTimeUtc = "2026-07-27T04:00:00.5000000Z"
+  ExecutablePath = "D:\\Tools\\python.exe"
+  CommandLine = ""
+}}
+Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $proc
+"""
+
+    assert run_powershell(script, tmp_path) == "False"
+
+
+def test_lifecycle_identity_rejects_runtime_identity_token_mismatch(tmp_path: Path) -> None:
+    identity_file = tmp_path / "app-process-identity.json"
+    script = f"""
+. "{COMMON_SCRIPT}"
+$root = "D:\\App"
+@{{
+  schema_version = 1
+  pid = 1234
+  identity_token = "other-token"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = "8000"
+}} | ConvertTo-Json | Set-Content -LiteralPath "{identity_file}" -Encoding UTF8
+$state = [pscustomobject]@{{
+  pid = 1234
+  process_start_time_utc = "2026-07-27T04:00:00.0000000Z"
+  executable_path = "D:\\Tools\\python.exe"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = 8000
+  identity_file = "{identity_file}"
+  identity_token = "token-1"
+}}
+$proc = [pscustomobject]@{{
+  ProcessId = 1234
+  CreationTimeUtc = "2026-07-27T04:00:00.5000000Z"
+  ExecutablePath = "D:\\Tools\\python.exe"
+  CommandLine = ""
+}}
+Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $proc
+"""
+
+    assert run_powershell(script, tmp_path) == "False"
+
+
 def test_lifecycle_identity_rejects_pid_reuse_by_start_time(tmp_path: Path) -> None:
     script = f"""
 . "{COMMON_SCRIPT}"
@@ -127,6 +231,30 @@ $proc = [pscustomobject]@{{
   CreationTimeUtc = "2026-07-27T04:00:00.0000000Z"
   ExecutablePath = "D:\\Tools\\python.exe"
   CommandLine = '"D:\\Tools\\python.exe" -m uvicorn backend.app.main:app --app-dir D:\\DifferentApp --host 127.0.0.1 --port 8000'
+}}
+Test-LocalAppProcessIdentity -State $state -Root "D:\\App" -ProcessInfo $proc
+"""
+
+    assert run_powershell(script, tmp_path) == "False"
+
+
+def test_lifecycle_identity_rejects_different_app_module(tmp_path: Path) -> None:
+    script = f"""
+. "{COMMON_SCRIPT}"
+$state = [pscustomobject]@{{
+  pid = 1234
+  process_start_time_utc = "2026-07-27T04:00:00.0000000Z"
+  executable_path = "D:\\Tools\\python.exe"
+  application_root = "D:\\App"
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = 8000
+}}
+$proc = [pscustomobject]@{{
+  ProcessId = 1234
+  CreationTimeUtc = "2026-07-27T04:00:00.0000000Z"
+  ExecutablePath = "D:\\Tools\\python.exe"
+  CommandLine = '"D:\\Tools\\python.exe" -m uvicorn other.app:app --app-dir D:\\App --host 127.0.0.1 --port 8000'
 }}
 Test-LocalAppProcessIdentity -State $state -Root "D:\\App" -ProcessInfo $proc
 """

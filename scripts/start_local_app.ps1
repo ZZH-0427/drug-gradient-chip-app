@@ -350,10 +350,18 @@ try {
 
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"
     $stderrLog = Join-Path $logsDir "backend.stderr.log"
+    $identityFile = Join-Path $runtimeDir "app-process-identity.json"
+    $identityToken = [guid]::NewGuid().ToString("N")
     $url = "http://$HostAddress`:$Port"
     $env:FORWARD_MODEL_DEVICE = $Device
     $env:SERVE_FRONTEND = "true"
     $env:FRONTEND_DIST_DIR = Join-Path $root "frontend\dist"
+    $env:LOCAL_APP_IDENTITY_TOKEN = $identityToken
+    $env:LOCAL_APP_IDENTITY_FILE = $identityFile
+    $env:LOCAL_APP_APPLICATION_ROOT = $root
+    $env:LOCAL_APP_MODULE = "backend.app.main:app"
+    $env:LOCAL_APP_HOST = $HostAddress
+    $env:LOCAL_APP_PORT = [string]$Port
     $args = @("-m", "uvicorn", "backend.app.main:app", "--app-dir", $root, "--host", $HostAddress, "--port", [string]$Port)
     if ($Foreground) {
         Info "Starting foreground app at $url"
@@ -386,6 +394,8 @@ try {
         url = $url
         repository_root = $root
         python_executable = $python
+        identity_file = $identityFile
+        identity_token = $identityToken
         started_at = (Get-Date).ToUniversalTime().ToString("o")
         stdout_log = $stdoutLog
         stderr_log = $stderrLog
