@@ -14,12 +14,36 @@ import {
 
 export const REVERSE_TASK_STORAGE_KEY = "drug-gradient-chip.reverse-task-id";
 
+const TARGET_RANGE_WARNING =
+  "目标浓度中包含超出推荐密集训练范围 [0.10, 0.95] 的数值，请谨慎评估结果。";
+const LEGACY_TARGET_RANGE_WARNING =
+  "Target concentrations include values outside the recommended dense training range [0.10, 0.95]; review the result carefully.";
+const INTERNAL_SCREENING_NOTE =
+  "内部筛选仅表示该结构已通过同一 Physics-GNN 代理模型的检查。";
+const LEGACY_INTERNAL_SCREENING_NOTE =
+  "Internal screening only means the structure was checked by the same Physics-GNN surrogate model.";
+const CFD_NOTE = "最终设计仍需使用 Fluent/CFD 进行独立验证。";
+const LEGACY_CFD_NOTE = "Final designs should still be independently verified with Fluent/CFD.";
+const RECALCULATED_CONCENTRATION_NOTE =
+  "反向设计中的复算浓度由反向优化所使用的内部代理模型生成，可能与独立正向预测结果存在轻微差异。";
+const DEVICE_VARIATION_NOTE =
+  "反向设计采用数值优化，不同计算设备可能得到不同但均满足代理模型筛选条件的设计方案。";
+
+type InletMode = "inlet1" | "inlet2";
+
 function formatNumber(value: number, digits = 6) {
   return Number.isFinite(value) ? value.toFixed(digits) : "-";
 }
 
 function isRunningStatus(status: string | undefined) {
-  return status === "queued" || status === "running";
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "preparing_model" ||
+    status === "optimizing" ||
+    status === "refining" ||
+    status === "verifying"
+  );
 }
 
 function isTerminalStatus(status: string | undefined) {
@@ -29,18 +53,43 @@ function isTerminalStatus(status: string | undefined) {
 function statusText(status: string | undefined) {
   switch (status) {
     case "queued":
-      return "排队中";
+      return "等待运行";
     case "running":
-      return "运行中";
+      return "正在运行";
+    case "preparing_model":
+      return "正在准备模型";
+    case "optimizing":
+      return "正在优化结构";
+    case "refining":
+      return "正在细化结构";
+    case "verifying":
+      return "正在复算验证";
     case "completed":
       return "已完成";
     case "failed":
-      return "失败";
+      return "运行失败";
     case "cancelled":
       return "已取消";
     default:
       return "未提交";
   }
+}
+
+function localizeReverseMessage(message: string) {
+  if (message === LEGACY_TARGET_RANGE_WARNING) {
+    return TARGET_RANGE_WARNING;
+  }
+  if (message === LEGACY_INTERNAL_SCREENING_NOTE) {
+    return INTERNAL_SCREENING_NOTE;
+  }
+  if (message === LEGACY_CFD_NOTE) {
+    return CFD_NOTE;
+  }
+  return message;
+}
+
+function getInletMode(form: ReverseDesignRequest): InletMode {
+  return form.inlet1 === 1 ? "inlet1" : "inlet2";
 }
 
 export function ReversePage() {
@@ -53,6 +102,7 @@ export function ReversePage() {
 
   const validationErrors = useMemo(() => validateReverseRequest(form), [form]);
   const isRunning = isRunningStatus(task?.status);
+  const inletMode = getInletMode(form);
 
   useEffect(() => {
     const savedTaskId = window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY);
@@ -113,6 +163,14 @@ export function ReversePage() {
     };
   }, [isRunning, task?.task_id]);
 
+  function setInletMode(mode: InletMode) {
+    setForm((current) => ({
+      ...current,
+      inlet1: mode === "inlet1" ? 1 : 0,
+      inlet2: mode === "inlet2" ? 1 : 0,
+    }));
+  }
+
   function updateTarget(index: number, value: string) {
     const next = [...form.target_concentrations];
     next[index] = Number(value);
@@ -170,7 +228,7 @@ export function ReversePage() {
   return (
     <section className="page-section">
       <div className="section-heading compact">
-        <p className="eyebrow">Reverse design</p>
+        <p className="eyebrow">芯片结构优化</p>
         <h1>反向设计</h1>
         <p>输入6个目标浓度，后台运行固定6芯片 Physics-GNN tandem 反向优化。</p>
       </div>
@@ -186,31 +244,38 @@ export function ReversePage() {
       ) : null}
 
       <div className="tool-panel">
-        <div className="form-grid">
+        <fieldset className="segmented reverse-inlet-selector" disabled={isRunning}>
+          <legend>入口设置</legend>
+          <span className="field-hint">选择高浓度入口</span>
           <label>
-            入口1浓度
             <input
-              type="number"
-              step="0.01"
-              value={form.inlet1}
-              disabled={isRunning}
-              onChange={(event) => setForm({ ...form, inlet1: Number(event.target.value) })}
+              type="radio"
+              name="reverse-inlet"
+              value="inlet1"
+              checked={inletMode === "inlet1"}
+              onChange={() => setInletMode("inlet1")}
             />
+            Inlet1
           </label>
           <label>
-            入口2浓度
             <input
-              type="number"
-              step="0.01"
-              value={form.inlet2}
-              disabled={isRunning}
-              onChange={(event) => setForm({ ...form, inlet2: Number(event.target.value) })}
+              type="radio"
+              name="reverse-inlet"
+              value="inlet2"
+              checked={inletMode === "inlet2"}
+              onChange={() => setInletMode("inlet2")}
             />
+            Inlet2
           </label>
-        </div>
+        </fieldset>
 
-        <div className="table-wrap">
-          <table className="input-table">
+        <div className="table-wrap reverse-target-wrap">
+          <table className="input-table reverse-target-table">
+            <colgroup>
+              <col className="position-col" />
+              <col className="point-col" />
+              <col className="target-col" />
+            </colgroup>
             <thead>
               <tr>
                 <th>位置</th>
@@ -224,17 +289,15 @@ export function ReversePage() {
                   <td>位置 {index + 1}</td>
                   <td>y{index + 1}</td>
                   <td>
-                    <label className="sr-label">
-                      y{index + 1}目标浓度
-                      <input
-                        aria-label={`y${index + 1}目标浓度`}
-                        type="number"
-                        step="0.01"
-                        value={form.target_concentrations[index]}
-                        disabled={isRunning}
-                        onChange={(event) => updateTarget(index, event.target.value)}
-                      />
-                    </label>
+                    <input
+                      className="reverse-target-input"
+                      aria-label={`y${index + 1} 目标浓度`}
+                      type="number"
+                      step="0.01"
+                      value={form.target_concentrations[index]}
+                      disabled={isRunning}
+                      onChange={(event) => updateTarget(index, event.target.value)}
+                    />
                   </td>
                 </tr>
               ))}
@@ -276,7 +339,7 @@ export function ReversePage() {
           {task.error ? <div className="message error">{task.error.message}</div> : null}
           {task.warnings.map((warning) => (
             <div className="message inline-warning" key={warning}>
-              {warning}
+              {localizeReverseMessage(warning)}
             </div>
           ))}
 
@@ -322,9 +385,11 @@ export function ReversePage() {
                   </tbody>
                 </table>
               </div>
+              <p className="supporting-note">{RECALCULATED_CONCENTRATION_NOTE}</p>
+              <p className="supporting-note">{DEVICE_VARIATION_NOTE}</p>
               {task.result.notes.map((note) => (
                 <p className="supporting-note" key={note}>
-                  {note}
+                  {localizeReverseMessage(note)}
                 </p>
               ))}
             </>

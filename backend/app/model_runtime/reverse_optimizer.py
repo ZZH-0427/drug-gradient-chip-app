@@ -68,7 +68,7 @@ def run_reverse_design(
         or float(target.max()) > params.target_recommended_max
     ):
         warnings.append(
-            "Target concentrations include values outside the recommended dense training range [0.10, 0.95]; review the result carefully."
+            "目标浓度中包含超出推荐密集训练范围 [0.10, 0.95] 的数值，请谨慎评估结果。"
         )
 
     started = time.perf_counter()
@@ -154,8 +154,8 @@ def run_reverse_design(
         },
         "warnings": warnings,
         "notes": [
-            "Internal screening only means the structure was checked by the same Physics-GNN surrogate model.",
-            "Final designs should still be independently verified with Fluent/CFD.",
+            "内部筛选仅表示该结构已通过同一 Physics-GNN 代理模型的检查。",
+            "最终设计仍需使用 Fluent/CFD 进行独立验证。",
         ],
         "elapsed_seconds": time.perf_counter() - started,
     }

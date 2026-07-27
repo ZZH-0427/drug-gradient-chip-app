@@ -11,21 +11,22 @@ describe("App navigation", () => {
   it("renders forward and reverse entries on the home page", () => {
     renderApp("/");
 
-    expect(screen.getAllByRole("link", { name: /正向预测|姝ｅ悜棰勬祴/ }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /反向设计|鍙嶅悜璁捐/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /正向预测/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /反向设计/ }).length).toBeGreaterThan(0);
   });
 
   it("renders the reverse page", () => {
     renderApp("/reverse");
 
     expect(screen.getByRole("heading", { name: "反向设计" })).toBeInTheDocument();
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(8);
+    expect(screen.getByRole("radio", { name: "Inlet2" })).toBeChecked();
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(6);
   });
 
   it("shows not found for unknown routes", () => {
     renderApp("/missing");
 
-    expect(screen.getByRole("heading", { name: /页面不存在|椤甸潰/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /页面不存在/ })).toBeInTheDocument();
   });
 });
 
