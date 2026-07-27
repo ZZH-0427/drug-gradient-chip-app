@@ -10,6 +10,8 @@ from app.schemas.forward import ForwardPredictionRequest
 
 def test_graph_builder_generates_expected_raw_tensors() -> None:
     builder = GraphBuilder.__new__(GraphBuilder)
+    left_widths = [0.261, 0.089, 0.212, 0.31, 0.187, 0.05]
+    right_widths = [0.138, 0.04, 0.236, 0.163, 0.285, 0.114]
 
     request = ForwardPredictionRequest(
         sample_name="DP 0",
@@ -19,8 +21,8 @@ def test_graph_builder_generates_expected_raw_tensors() -> None:
             {
                 "position": position,
                 "chip_type": f"{position}to{position}",
-                "left_width_mm": 0.1 + position,
-                "right_width_mm": 0.2 + position,
+                "left_width_mm": left_widths[position - 1],
+                "right_width_mm": right_widths[position - 1],
                 "left_bend_straight_distance_mm": 10 + position,
                 "right_bend_straight_distance_mm": 20 + position,
             }

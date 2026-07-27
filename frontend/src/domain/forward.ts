@@ -19,6 +19,10 @@ export interface ForwardFormState {
 export const MIN_CHIP_COUNT = 4;
 export const MAX_CHIP_COUNT = 8;
 export const CURRENT_MODEL_CHIP_COUNT = 6;
+export const FORWARD_WIDTH_MIN = 0.04;
+export const FORWARD_WIDTH_MAX = 0.31;
+export const FORWARD_WIDTH_STEP = 0.001;
+export const FORWARD_DISTANCE_STEP = 1;
 export const CHIP_COUNT_OPTIONS = Array.from(
   { length: MAX_CHIP_COUNT - MIN_CHIP_COUNT + 1 },
   (_, index) => MIN_CHIP_COUNT + index,

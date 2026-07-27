@@ -77,6 +77,9 @@ Forward:
 - `POST /api/v1/forward`
 - Request contains `sample_name`, optional `chip_count`, `inlet1`, `inlet2`,
   and chip rows.
+- Forward chip `left_width_mm` and `right_width_mm` must be finite values from
+  `0.04` through `0.31` mm. The frontend width inputs use `step=0.001`; bend
+  straight distance inputs keep `step=1`.
 - Response contains `chip_count` and six concentration predictions.
 - The response does not contain `flow`, `mean`, `std`, `seed_values`, or
   checkpoint paths.

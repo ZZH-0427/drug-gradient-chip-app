@@ -5,6 +5,9 @@ from typing import Any
 
 from app.core.chip_count import CURRENT_MODEL_CHIP_COUNT, MAX_CHIP_COUNT, MIN_CHIP_COUNT
 
+FORWARD_WIDTH_MIN_MM = 0.04
+FORWARD_WIDTH_MAX_MM = 0.31
+
 
 def _finite_float(value: Any, field_name: str) -> float:
     number = float(value)
@@ -30,8 +33,8 @@ if Field is not None:
 
         position: int = Field(ge=1, le=MAX_CHIP_COUNT)
         chip_type: str = Field(min_length=1)
-        left_width_mm: float
-        right_width_mm: float
+        left_width_mm: float = Field(ge=FORWARD_WIDTH_MIN_MM, le=FORWARD_WIDTH_MAX_MM)
+        right_width_mm: float = Field(ge=FORWARD_WIDTH_MIN_MM, le=FORWARD_WIDTH_MAX_MM)
         left_bend_straight_distance_mm: float
         right_bend_straight_distance_mm: float
 
@@ -140,6 +143,10 @@ else:
                 raise ValueError("chip_type must not be empty")
             self.left_width_mm = _finite_float(left_width_mm, "left_width_mm")
             self.right_width_mm = _finite_float(right_width_mm, "right_width_mm")
+            if self.left_width_mm < FORWARD_WIDTH_MIN_MM or self.left_width_mm > FORWARD_WIDTH_MAX_MM:
+                raise ValueError("left_width_mm must be between 0.04 and 0.31")
+            if self.right_width_mm < FORWARD_WIDTH_MIN_MM or self.right_width_mm > FORWARD_WIDTH_MAX_MM:
+                raise ValueError("right_width_mm must be between 0.04 and 0.31")
             self.left_bend_straight_distance_mm = _finite_float(
                 left_bend_straight_distance_mm,
                 "left_bend_straight_distance_mm",

@@ -55,6 +55,12 @@ describe("Forward chip count form", () => {
     expect(positionCells()).toHaveLength(6);
     expect(screen.getByText("P1/P2")).toBeInTheDocument();
     expect(screen.getByText("P11/P12")).toBeInTheDocument();
+    for (let position = 1; position <= 6; position += 1) {
+      expectWidthAttributes(leftWidthInput(position));
+      expectWidthAttributes(rightWidthInput(position));
+      expectDistanceAttributes(leftDistanceInput(position));
+      expectDistanceAttributes(rightDistanceInput(position));
+    }
 
     const options = within(chipCountSelect()).getAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual(["4", "5", "6", "7", "8"]);
@@ -82,6 +88,12 @@ describe("Forward chip count form", () => {
 
     expect(positionCells()).toHaveLength(8);
     expect(screen.getByText("P15/P16")).toBeInTheDocument();
+    for (let position = 1; position <= 8; position += 1) {
+      expectWidthAttributes(leftWidthInput(position));
+      expectWidthAttributes(rightWidthInput(position));
+      expectDistanceAttributes(leftDistanceInput(position));
+      expectDistanceAttributes(rightDistanceInput(position));
+    }
   });
 
   it("keeps existing rows and adds the unified default row when increasing from 6 to 7", async () => {
@@ -98,6 +110,10 @@ describe("Forward chip count form", () => {
     expect(chipTypeSelect(7)).toHaveValue("5to4");
     expect(leftWidthInput(7)).toHaveValue(0.261);
     expect(rightWidthInput(7)).toHaveValue(0.138);
+    expectWidthAttributes(leftWidthInput(7));
+    expectWidthAttributes(rightWidthInput(7));
+    expectDistanceAttributes(leftDistanceInput(7));
+    expectDistanceAttributes(rightDistanceInput(7));
     expect(leftDistanceInput(7)).toHaveValue(31);
     expect(rightDistanceInput(7)).toHaveValue(25);
   });
@@ -152,12 +168,87 @@ describe("Forward chip count form", () => {
     expect(chipTypeSelect(1)).toHaveValue("5to4");
     expect(chipTypeSelect(6)).toHaveValue("3to1");
     expect(leftWidthInput(6)).toHaveValue(0.05);
+    for (let position = 1; position <= 6; position += 1) {
+      expect(Number(leftWidthInput(position).value)).toBeGreaterThanOrEqual(0.04);
+      expect(Number(leftWidthInput(position).value)).toBeLessThanOrEqual(0.31);
+      expect(Number(rightWidthInput(position).value)).toBeGreaterThanOrEqual(0.04);
+      expect(Number(rightWidthInput(position).value)).toBeLessThanOrEqual(0.31);
+      expectWidthAttributes(leftWidthInput(position));
+      expectWidthAttributes(rightWidthInput(position));
+    }
     expect(screen.getByRole("radio", { name: "inlet1=1, inlet2=0" })).toBeChecked();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
 describe("Forward workflow interactions", () => {
+  it.each([
+    ["0.04", "0.310"],
+    ["0.040", "0.31"],
+    ["0.041", "0.125"],
+    ["0.1", "0.3"],
+  ])("accepts legal width boundary values %s and %s", async (leftWidth, rightWidth) => {
+    const user = userEvent.setup();
+    mockFetch(jsonResponse(statusReady));
+    renderForwardPage();
+
+    await waitFor(() => expect(chipCountSelect()).toHaveValue("6"));
+    await user.clear(leftWidthInput(1));
+    await user.type(leftWidthInput(1), leftWidth);
+    await user.clear(rightWidthInput(1));
+    await user.type(rightWidthInput(1), rightWidth);
+    await user.click(confirmButton());
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["left", "0.039"],
+    ["left", "0.039999"],
+    ["left", "0.3101"],
+    ["left", "0.311"],
+    ["left", "-0.04"],
+    ["right", "0.039"],
+    ["right", "0.311"],
+    ["right", "NaN"],
+    ["right", "Infinity"],
+  ])("rejects invalid %s width value %s before opening confirmation", async (side, value) => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetch(jsonResponse(statusReady));
+    renderForwardPage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const input = side === "left" ? leftWidthInput(1) : rightWidthInput(1);
+    await user.clear(input);
+    await user.type(input, value);
+    await user.click(confirmButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/0\.04.*0\.31.*mm/);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves an invalid width value and allows confirmation after the user corrects it", async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetch(jsonResponse(statusReady));
+    renderForwardPage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await user.clear(leftWidthInput(1));
+    await user.type(leftWidthInput(1), "0.311");
+    await user.click(confirmButton());
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(leftWidthInput(1)).toHaveValue(0.311);
+
+    await user.clear(leftWidthInput(1));
+    await user.type(leftWidthInput(1), "0.31");
+    await user.click(confirmButton());
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps inlet high-concentration choices mutually exclusive and sends the selected relation", async () => {
     const user = userEvent.setup();
     const fetchMock = mockFetch(jsonResponse(statusReady), jsonResponse(successPayload()));
@@ -297,19 +388,31 @@ function chipTypeSelect(position: number) {
 }
 
 function leftWidthInput(position: number) {
-  return numericInputsForPosition(position)[0];
+  return numericInputsForPosition(position)[0] as HTMLInputElement;
 }
 
 function rightWidthInput(position: number) {
-  return numericInputsForPosition(position)[1];
+  return numericInputsForPosition(position)[1] as HTMLInputElement;
 }
 
 function leftDistanceInput(position: number) {
-  return numericInputsForPosition(position)[2];
+  return numericInputsForPosition(position)[2] as HTMLInputElement;
 }
 
 function rightDistanceInput(position: number) {
-  return numericInputsForPosition(position)[3];
+  return numericInputsForPosition(position)[3] as HTMLInputElement;
+}
+
+function expectWidthAttributes(input: HTMLElement) {
+  expect(input).toHaveAttribute("min", "0.04");
+  expect(input).toHaveAttribute("max", "0.31");
+  expect(input).toHaveAttribute("step", "0.001");
+}
+
+function expectDistanceAttributes(input: HTMLElement) {
+  expect(input).not.toHaveAttribute("min");
+  expect(input).not.toHaveAttribute("max");
+  expect(input).toHaveAttribute("step", "1");
 }
 
 function numericInputsForPosition(position: number) {

@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -80,6 +81,19 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    @fastapi_app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Any, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed.",
+                }
+            },
+        )
+
     frontend_origins = resolve_frontend_origins()
     if frontend_origins:
         fastapi_app.add_middleware(

@@ -1,5 +1,10 @@
 import type { ForwardPredictionRequest } from "../api/types";
-import { MAX_CHIP_COUNT, MIN_CHIP_COUNT } from "./forward";
+import {
+  FORWARD_WIDTH_MAX,
+  FORWARD_WIDTH_MIN,
+  MAX_CHIP_COUNT,
+  MIN_CHIP_COUNT,
+} from "./forward";
 import type { ForwardFormState } from "./forward";
 
 export interface ValidationResult {
@@ -19,6 +24,7 @@ const numericFields: NumericChipField[] = [
   "left_bend_straight_distance_mm",
   "right_bend_straight_distance_mm",
 ];
+const widthFields = ["left_width_mm", "right_width_mm"] as const;
 
 export function validateForwardForm(form: ForwardFormState): ValidationResult {
   const errors: string[] = [];
@@ -27,7 +33,7 @@ export function validateForwardForm(form: ForwardFormState): ValidationResult {
     errors.push("样本名称不能为空。");
   }
   if (form.chip_count < MIN_CHIP_COUNT || form.chip_count > MAX_CHIP_COUNT) {
-    errors.push("芯片数量必须在4到8之间。");
+    errors.push(`芯片数量必须在 ${MIN_CHIP_COUNT} 到 ${MAX_CHIP_COUNT} 之间。`);
   }
   if (form.chips.length !== form.chip_count) {
     errors.push("芯片位置数量必须与芯片数量一致。");
@@ -47,6 +53,20 @@ export function validateForwardForm(form: ForwardFormState): ValidationResult {
       if (parseFinite(chip[field]) === undefined) {
         errors.push(`位置 ${chip.position} 的数值参数不完整或不是有限数字。`);
         break;
+      }
+    }
+    for (const field of widthFields) {
+      const parsedWidth = parseFinite(chip[field]);
+      if (
+        parsedWidth === undefined ||
+        parsedWidth < FORWARD_WIDTH_MIN ||
+        parsedWidth > FORWARD_WIDTH_MAX ||
+        !hasValidWidthPrecision(chip[field])
+      ) {
+        const side = field === "left_width_mm" ? "左宽度" : "右宽度";
+        errors.push(
+          `位置 ${chip.position} ${side}必须在 ${FORWARD_WIDTH_MIN}～${FORWARD_WIDTH_MAX} mm 之间。`,
+        );
       }
     }
     return parsed;
@@ -81,4 +101,13 @@ function parseFinite(value: string): number | undefined {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function hasValidWidthPrecision(value: string): boolean {
+  const normalized = value.trim();
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(normalized)) {
+    return false;
+  }
+  const fraction = normalized.split(".")[1] ?? "";
+  return fraction.replace(/0+$/, "").length <= 3;
 }

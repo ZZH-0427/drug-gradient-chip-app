@@ -6,6 +6,10 @@ import {
   CHIP_COUNT_OPTIONS,
   CHIP_TYPE_OPTIONS,
   CURRENT_MODEL_CHIP_COUNT,
+  FORWARD_DISTANCE_STEP,
+  FORWARD_WIDTH_MAX,
+  FORWARD_WIDTH_MIN,
+  FORWARD_WIDTH_STEP,
   MODEL_LIMIT_MESSAGE,
   cloneExampleForm,
   emptyEditableForm,
@@ -329,6 +333,9 @@ function FormView({
                     label={`位置 ${chip.position} 左宽度`}
                     value={chip.left_width_mm}
                     disabled={disabled}
+                    min={FORWARD_WIDTH_MIN}
+                    max={FORWARD_WIDTH_MAX}
+                    step={FORWARD_WIDTH_STEP}
                     onChange={(value) => onChipChange(chip.position, "left_width_mm", value)}
                   />
                 </td>
@@ -337,6 +344,9 @@ function FormView({
                     label={`位置 ${chip.position} 右宽度`}
                     value={chip.right_width_mm}
                     disabled={disabled}
+                    min={FORWARD_WIDTH_MIN}
+                    max={FORWARD_WIDTH_MAX}
+                    step={FORWARD_WIDTH_STEP}
                     onChange={(value) => onChipChange(chip.position, "right_width_mm", value)}
                   />
                 </td>
@@ -345,6 +355,7 @@ function FormView({
                     label={`位置 ${chip.position} 左弯曲直道距离`}
                     value={chip.left_bend_straight_distance_mm}
                     disabled={disabled}
+                    step={FORWARD_DISTANCE_STEP}
                     onChange={(value) =>
                       onChipChange(chip.position, "left_bend_straight_distance_mm", value)
                     }
@@ -355,6 +366,7 @@ function FormView({
                     label={`位置 ${chip.position} 右弯曲直道距离`}
                     value={chip.right_bend_straight_distance_mm}
                     disabled={disabled}
+                    step={FORWARD_DISTANCE_STEP}
                     onChange={(value) =>
                       onChipChange(chip.position, "right_bend_straight_distance_mm", value)
                     }
@@ -385,15 +397,20 @@ interface NumberInputProps {
   label: string;
   value: string;
   disabled: boolean;
+  min?: number;
+  max?: number;
+  step: number;
   onChange: (value: string) => void;
 }
 
-function NumberInput({ label, value, disabled, onChange }: NumberInputProps) {
+function NumberInput({ label, value, disabled, min, max, step, onChange }: NumberInputProps) {
   return (
     <input
       aria-label={label}
       type="number"
-      step="any"
+      min={min}
+      max={max}
+      step={step}
       required
       value={value}
       disabled={disabled}

@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
 import csv
+import json
+import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +23,8 @@ GOLDEN_EXPECTED = FIXTURE_DIR / "forward_prediction_expected.csv"
 
 
 def sample_payload() -> dict[str, object]:
+    left_widths = [0.261, 0.089, 0.212, 0.31, 0.187, 0.05]
+    right_widths = [0.138, 0.04, 0.236, 0.163, 0.285, 0.114]
     return {
         "sample_name": "DP 0",
         "inlet1": 1.0,
@@ -29,8 +33,8 @@ def sample_payload() -> dict[str, object]:
             {
                 "position": position,
                 "chip_type": chip_type,
-                "left_width_mm": 0.1 + position,
-                "right_width_mm": 0.2 + position,
+                "left_width_mm": left_widths[position - 1],
+                "right_width_mm": right_widths[position - 1],
                 "left_bend_straight_distance_mm": 10.0 + position,
                 "right_bend_straight_distance_mm": 20.0 + position,
             }
@@ -164,8 +168,8 @@ def test_forward_rejects_supported_future_chip_counts_before_adapter_call(chip_c
             {
                 "position": position,
                 "chip_type": "1to1",
-                "left_width_mm": 0.1 + position,
-                "right_width_mm": 0.2 + position,
+                "left_width_mm": 0.261,
+                "right_width_mm": 0.138,
                 "left_bend_straight_distance_mm": 10.0 + position,
                 "right_bend_straight_distance_mm": 20.0 + position,
             }
@@ -195,6 +199,7 @@ def test_forward_rejects_out_of_range_chip_count_as_schema_error(chip_count: int
         response = client.post("/api/v1/forward", json=payload)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "UNSUPPORTED_CHIP_COUNT" not in response.text
 
 
@@ -207,6 +212,7 @@ def test_forward_rejects_six_chip_count_with_five_rows_as_schema_error() -> None
         response = client.post("/api/v1/forward", json=payload)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "UNSUPPORTED_CHIP_COUNT" not in response.text
 
 
@@ -218,6 +224,7 @@ def test_forward_rejects_chip_count_mismatch_as_schema_error() -> None:
         response = client.post("/api/v1/forward", json=payload)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "UNSUPPORTED_CHIP_COUNT" not in response.text
 
 
@@ -232,6 +239,7 @@ def test_forward_rejects_non_consecutive_positions_as_schema_error() -> None:
         response = client.post("/api/v1/forward", json=payload)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_forward_rejects_duplicate_positions_as_schema_error() -> None:
@@ -245,6 +253,7 @@ def test_forward_rejects_duplicate_positions_as_schema_error() -> None:
         response = client.post("/api/v1/forward", json=payload)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_invalid_forward_input_returns_422() -> None:
@@ -255,6 +264,100 @@ def test_invalid_forward_input_returns_422() -> None:
         response = client.post("/api/v1/forward", json=payload)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("left_width_mm", 0.04),
+        ("left_width_mm", 0.040),
+        ("left_width_mm", 0.041),
+        ("left_width_mm", 0.1),
+        ("left_width_mm", 0.125),
+        ("left_width_mm", 0.3),
+        ("left_width_mm", 0.31),
+        ("left_width_mm", 0.310),
+        ("right_width_mm", 0.04),
+        ("right_width_mm", 0.31),
+    ],
+)
+def test_forward_accepts_width_boundaries(field: str, value: float) -> None:
+    payload = sample_payload()
+    chips = payload["chips"]
+    assert isinstance(chips, list)
+    assert isinstance(chips[0], dict)
+    chips[0][field] = value
+
+    with TestClient(create_app(adapter_factory=FakeForwardAdapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("left_width_mm", 0.039),
+        ("left_width_mm", 0.039999),
+        ("left_width_mm", 0.3101),
+        ("left_width_mm", 0.311),
+        ("left_width_mm", -0.04),
+        ("right_width_mm", 0.039),
+        ("right_width_mm", 0.311),
+    ],
+)
+def test_forward_rejects_width_outside_public_range_before_adapter_call(
+    field: str,
+    value: float,
+) -> None:
+    adapter = FakeForwardAdapter()
+    payload = sample_payload()
+    chips = payload["chips"]
+    assert isinstance(chips, list)
+    assert isinstance(chips[0], dict)
+    chips[0][field] = value
+
+    with TestClient(create_app(adapter_factory=lambda: adapter)) as client:
+        response = client.post("/api/v1/forward", json=payload)
+
+    body = response.json()
+    assert response.status_code == 422
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    assert adapter.predict_calls == 0
+    assert "Traceback" not in response.text
+    assert "pytorch_geometric-master" not in response.text
+    assert "best_ablation_checkpoint.pt" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("left_width_mm", ""),
+        ("left_width_mm", math.nan),
+        ("left_width_mm", math.inf),
+        ("right_width_mm", ""),
+        ("right_width_mm", -math.inf),
+    ],
+)
+def test_forward_rejects_non_finite_width_before_adapter_call(field: str, value: object) -> None:
+    adapter = FakeForwardAdapter()
+    payload = sample_payload()
+    chips = payload["chips"]
+    assert isinstance(chips, list)
+    assert isinstance(chips[0], dict)
+    chips[0][field] = value
+
+    with TestClient(create_app(adapter_factory=lambda: adapter)) as client:
+        response = client.post(
+            "/api/v1/forward",
+            content=json.dumps(payload, allow_nan=True),
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert adapter.predict_calls == 0
 
 
 def test_adapter_created_once_and_reused_for_multiple_requests() -> None:
