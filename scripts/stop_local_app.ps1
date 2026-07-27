@@ -26,10 +26,27 @@ function Wait-PortReleased([int]$Port) {
     throw "Port $Port was not released in time."
 }
 
+function Stop-ReverseWorkers([string]$Root) {
+    $normalizedRoot = ConvertTo-LocalAppNormalizedPath -Path $Root
+    $workers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $line = [string]$_.CommandLine
+            $line -and
+                (Test-LocalAppCommandLineContains -CommandLine $line -Needle "-m app.model_runtime.reverse_worker") -and
+                (Test-LocalAppCommandLineContains -CommandLine $line -Needle "--application-root") -and
+                (Test-LocalAppCommandLineContains -CommandLine $line -Needle $normalizedRoot)
+        }
+    foreach ($worker in @($workers)) {
+        Write-Info "Stopping reverse worker PID $($worker.ProcessId)."
+        Stop-Process -Id ([int]$worker.ProcessId) -Force -ErrorAction SilentlyContinue
+    }
+}
+
 try {
     $root = Get-LocalAppRepositoryRoot
     $statePath = Get-LocalAppStatePath -Root $root
     if (-not (Test-Path -LiteralPath $statePath)) {
+        Stop-ReverseWorkers -Root $root
         Write-Info "Application is not running."
         exit 0
     }
@@ -52,6 +69,7 @@ try {
     }
 
     Stop-Process -Id $targetProcessId -ErrorAction Stop
+    Stop-ReverseWorkers -Root $root
     Wait-PortReleased -Port ([int]$state.port)
     Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
     Write-Info "Application stopped. Logs remain under .runtime/logs."
