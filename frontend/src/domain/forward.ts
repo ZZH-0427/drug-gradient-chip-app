@@ -27,8 +27,6 @@ export const CHIP_COUNT_OPTIONS = Array.from(
   { length: MAX_CHIP_COUNT - MIN_CHIP_COUNT + 1 },
   (_, index) => MIN_CHIP_COUNT + index,
 );
-export const MODEL_LIMIT_MESSAGE =
-  "当前正式模型仅支持 6 个芯片。其他数量将在正式可变节点模型接入后开放。";
 
 export const CHIP_TYPE_OPTIONS = Array.from({ length: 6 }, (_, leftIndex) =>
   Array.from({ length: 6 }, (_, rightIndex) => `${leftIndex + 1}to${rightIndex + 1}`),

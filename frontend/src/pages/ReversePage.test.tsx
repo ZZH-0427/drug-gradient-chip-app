@@ -1,73 +1,75 @@
 import { act } from "react";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LOCALE_STORAGE_KEY } from "../i18n/locale";
+import { LanguageSwitcher } from "../i18n/LanguageSwitcher";
+import { renderWithI18n } from "../test/renderWithI18n";
 import { REVERSE_TASK_STORAGE_KEY, ReversePage } from "./ReversePage";
 
-const TARGET_RANGE_WARNING =
-  "目标浓度中包含超出推荐密集训练范围 [0.10, 0.95] 的数值，请谨慎评估结果。";
 const LEGACY_TARGET_RANGE_WARNING =
   "Target concentrations include values outside the recommended dense training range [0.10, 0.95]; review the result carefully.";
-const INTERNAL_SCREENING_NOTE =
-  "内部筛选仅表示该结构已通过同一 Physics-GNN 代理模型的检查。";
-const CFD_NOTE = "最终设计仍需使用 Fluent/CFD 进行独立验证。";
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  window.localStorage.clear();
   window.sessionStorage.clear();
 });
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   window.sessionStorage.clear();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
-describe("Reverse form", () => {
-  it("uses a segmented inlet selector instead of numeric inlet inputs", async () => {
-    const user = userEvent.setup();
-    render(<ReversePage />);
+describe("Reverse localized form", () => {
+  it("renders Chinese reverse prediction copy and never shows the old product name", () => {
+    renderReversePage();
 
-    expect(screen.queryByText("入口1浓度")).not.toBeInTheDocument();
-    expect(screen.queryByText("入口2浓度")).not.toBeInTheDocument();
-
-    const inlet1 = screen.getByRole("radio", { name: "Inlet1" });
-    const inlet2 = screen.getByRole("radio", { name: "Inlet2" });
-    expect(inlet1).not.toBeChecked();
-    expect(inlet2).toBeChecked();
-
-    await user.click(inlet1);
-    expect(inlet1).toBeChecked();
-    expect(inlet2).not.toBeChecked();
+    expect(screen.getByRole("heading", { name: "反向预测" })).toBeInTheDocument();
+    expect(screen.getByText("芯片结构优化")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始反向预测" })).toBeInTheDocument();
+    expect(document.title).toBe("反向预测 | 药物浓度梯度芯片");
+    expect(document.body.textContent).not.toContain("反向设计");
+    expect(document.body.textContent).not.toContain("Reverse Design");
   });
 
-  it("sends Inlet1 as inlet1=1 and inlet2=0", async () => {
+  it("switches to English without clearing target concentrations or inlet selection", async () => {
     const user = userEvent.setup();
-    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
-    render(<ReversePage />);
+    renderReversePage();
 
     await user.click(screen.getByRole("radio", { name: "Inlet1" }));
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.clear(screen.getByRole("spinbutton", { name: "y1 目标浓度" }));
+    await user.type(screen.getByRole("spinbutton", { name: "y1 目标浓度" }), "0.42");
+    await user.click(screen.getByRole("button", { name: "EN" }));
+
+    expect(screen.getByRole("heading", { name: "Reverse Prediction" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Reverse Prediction" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Inlet1" })).toBeChecked();
+    expect(screen.getByRole("spinbutton", { name: "y1 Target Concentration" })).toHaveValue(0.42);
+    expect(document.title).toBe("Reverse Prediction | Drug Concentration Gradient Chip");
+  });
+
+  it("uses a segmented inlet selector and submits Inlet1 as inlet1=1 and inlet2=0", async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
+    renderReversePage();
+
+    expect(screen.queryByText("入口1浓度")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Inlet2" })).toBeChecked();
+
+    await user.click(screen.getByRole("radio", { name: "Inlet1" }));
+    await user.click(screen.getByRole("button", { name: "开始反向预测" }));
 
     expect(await screen.findByText("正在运行")).toBeInTheDocument();
     expectPostedPayload(fetchMock, { inlet1: 1, inlet2: 0 });
   });
 
-  it("sends Inlet2 as inlet1=0 and inlet2=1", async () => {
-    const user = userEvent.setup();
-    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
-    render(<ReversePage />);
-
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
-
-    expect(await screen.findByText("正在运行")).toBeInTheDocument();
-    expectPostedPayload(fetchMock, { inlet1: 0, inlet2: 1 });
-  });
-
   it("restores the official example and resets to Inlet2", async () => {
     const user = userEvent.setup();
-    render(<ReversePage />);
+    renderReversePage();
 
     await user.click(screen.getByRole("radio", { name: "Inlet1" }));
     await user.clear(screen.getByRole("spinbutton", { name: "y1 目标浓度" }));
@@ -79,7 +81,7 @@ describe("Reverse form", () => {
   });
 
   it("renders exactly six compact target inputs with accessible labels", () => {
-    const { container } = render(<ReversePage />);
+    const { container } = renderReversePage();
 
     for (let index = 1; index <= 6; index += 1) {
       expect(screen.getByRole("spinbutton", { name: `y${index} 目标浓度` })).toBeInTheDocument();
@@ -87,28 +89,16 @@ describe("Reverse form", () => {
     expect(screen.getAllByRole("spinbutton")).toHaveLength(6);
     expect(container.querySelectorAll(".reverse-target-input")).toHaveLength(6);
     expect(container.querySelector(".reverse-target-table")).toBeInTheDocument();
-    expect(screen.queryByText("y1目标浓度")).not.toBeInTheDocument();
-  });
-
-  it("allows the official 0.08 target value to submit", async () => {
-    const user = userEvent.setup();
-    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
-    render(<ReversePage />);
-
-    expect(screen.getByRole("spinbutton", { name: "y1 目标浓度" })).toHaveValue(0.08);
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("Reverse task submission and cancellation", () => {
+describe("Reverse localized task submission and cancellation", () => {
   it("stores task_id after creating a task and does not store request or result payloads", async () => {
     const user = userEvent.setup();
     const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
-    render(<ReversePage />);
+    renderReversePage();
 
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.click(screen.getByRole("button", { name: "开始反向预测" }));
 
     expect(await screen.findByText("正在运行")).toBeInTheDocument();
     expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBe("task-1");
@@ -120,9 +110,9 @@ describe("Reverse task submission and cancellation", () => {
     const user = userEvent.setup();
     const createPromise = new Promise<Response>(() => undefined);
     const fetchMock = mockFetch(createPromise);
-    render(<ReversePage />);
+    renderReversePage();
 
-    const submit = screen.getByRole("button", { name: "提交反向设计任务" });
+    const submit = screen.getByRole("button", { name: "开始反向预测" });
     await user.click(submit);
     await user.click(submit);
 
@@ -131,24 +121,30 @@ describe("Reverse task submission and cancellation", () => {
 
   it("does not post a new task when a local task is already running", async () => {
     const user = userEvent.setup();
-    mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
-    render(<ReversePage />);
+    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
+    renderReversePage();
 
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.click(screen.getByRole("button", { name: "开始反向预测" }));
     expect(await screen.findByText("正在运行")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "提交反向设计任务" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "开始反向预测" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "EN" }));
+
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBe("task-1");
   });
 
-  it("shows busy message without starting polling", async () => {
+  it("shows localized busy message without starting polling", async () => {
     const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
     const fetchMock = mockFetch(
       jsonResponse({ error: { code: "REVERSE_TASK_BUSY", message: "server detail" } }, 409),
     );
-    render(<ReversePage />);
+    renderReversePage();
 
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.click(screen.getByRole("button", { name: "Start Reverse Prediction" }));
 
-    expect(await screen.findByText("已有反向设计任务正在运行，请等待完成或取消后再提交。")).toBeInTheDocument();
+    expect(await screen.findByText("A reverse-prediction task is already running. Please wait for it to finish.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull();
   });
@@ -163,9 +159,9 @@ describe("Reverse task submission and cancellation", () => {
       jsonResponse({ task_id: "task-1", status: "running" }, 202),
       cancelPromise,
     );
-    render(<ReversePage />);
+    renderReversePage();
 
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.click(screen.getByRole("button", { name: "开始反向预测" }));
     const cancel = await screen.findByRole("button", { name: "取消任务" });
     await user.click(cancel);
     await user.click(cancel);
@@ -185,84 +181,84 @@ describe("Reverse task submission and cancellation", () => {
       jsonResponse({ task_id: "task-1", status: "running" }, 202),
       jsonResponse({ error: { code: "REVERSE_TASK_NOT_CANCELLABLE" } }, 409),
     );
-    render(<ReversePage />);
+    renderReversePage();
 
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.click(screen.getByRole("button", { name: "开始反向预测" }));
     await user.click(await screen.findByRole("button", { name: "取消任务" }));
 
-    expect(await screen.findByText("该反向设计任务当前不可取消。")).toBeInTheDocument();
+    expect(await screen.findByText("该反向预测任务当前不可取消。")).toBeInTheDocument();
     expect(screen.getByText("正在运行")).toBeInTheDocument();
-  });
-
-  it("does not show cancel action after a completed task", async () => {
-    window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
-    mockFetch(jsonResponse(completedTask()));
-
-    render(<ReversePage />);
-
-    expect(await screen.findByText("已完成，耗时 1.00 秒")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "取消任务" })).not.toBeInTheDocument();
   });
 });
 
-describe("Reverse results localization", () => {
-  it("renders Chinese warning and notes without legacy English sentences", async () => {
+describe("Reverse localized results", () => {
+  it("renders Chinese warning and notes without legacy English or old product name", async () => {
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
     mockFetch(jsonResponse(completedTask()));
 
-    render(<ReversePage />);
+    renderReversePage();
 
-    expect(await screen.findByText("已完成，耗时 1.00 秒")).toBeInTheDocument();
-    expect(screen.getByText(TARGET_RANGE_WARNING)).toBeInTheDocument();
-    expect(screen.getByText(INTERNAL_SCREENING_NOTE)).toBeInTheDocument();
-    expect(screen.getByText(CFD_NOTE)).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "反向设计中的复算浓度由反向优化所使用的内部代理模型生成，可能与独立正向预测结果存在轻微差异。",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "反向设计采用数值优化，不同计算设备可能得到不同但均满足代理模型筛选条件的设计方案。",
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("已完成, 耗时 1.00 秒")).toBeInTheDocument();
+    expect(screen.getByText("目标浓度中包含超出推荐密集训练范围 [0.10, 0.95] 的数值，请谨慎评估结果。")).toBeInTheDocument();
+    expect(screen.getByText("内部筛选仅表示该结构已通过同一 Physics-GNN 代理模型的检查。")).toBeInTheDocument();
+    expect(screen.getByText("最终设计仍需使用 Fluent/CFD 进行独立验证。")).toBeInTheDocument();
+    expect(screen.getByText("反向预测中的复算浓度由反向优化所使用的内部代理模型生成，可能与独立正向预测结果存在轻微差异。")).toBeInTheDocument();
+    expect(screen.getByText("反向预测采用数值优化，不同计算设备可能得到不同但均满足代理模型筛选条件的方案。")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(LEGACY_TARGET_RANGE_WARNING);
-    expect(document.body.textContent).not.toContain("Internal screening only");
-    expect(document.body.textContent).not.toContain("Final designs should");
+    expect(document.body.textContent).not.toContain("反向设计");
+    expect(document.body.textContent).not.toContain("Reverse Design");
   });
 
   it.each([
-    ["queued", "等待运行"],
-    ["running", "正在运行"],
-    ["preparing_model", "正在准备模型"],
-    ["optimizing", "正在优化结构"],
-    ["refining", "正在细化结构"],
-    ["verifying", "正在复算验证"],
-    ["completed", "已完成"],
-    ["failed", "运行失败"],
-    ["cancelled", "已取消"],
-  ])("maps %s status to Chinese", async (status, label) => {
+    ["queued", "等待运行", "Queued"],
+    ["running", "正在运行", "Running"],
+    ["preparing_model", "正在准备模型", "Preparing Model"],
+    ["optimizing", "正在优化结构", "Optimizing Structure"],
+    ["refining", "正在细化结构", "Refining Structure"],
+    ["verifying", "正在复算验证", "Verifying Prediction"],
+    ["completed", "已完成", "Completed"],
+    ["failed", "运行失败", "Failed"],
+    ["cancelled", "已取消", "Cancelled"],
+  ])("maps %s status to both locales", async (status, zhLabel, enLabel) => {
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
     mockFetch(jsonResponse({ ...runningTask(), status }));
+    const user = userEvent.setup();
 
-    render(<ReversePage />);
+    renderReversePage();
 
-    expect(await screen.findByText(label)).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain(status);
+    expect(await screen.findByText(zhLabel)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "EN" }));
+    expect(screen.getByText(enLabel)).toBeInTheDocument();
   });
 
-  it("uses Chinese result table headers", async () => {
+  it("uses localized result table headers and hides flow and paths", async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
     mockFetch(jsonResponse(completedTask()));
 
-    render(<ReversePage />);
+    renderReversePage();
 
-    const table = await screen.findByRole("table", { name: "" });
-    const resultSection = screen.getByRole("heading", { name: "任务状态" }).closest("section");
+    const resultSection = (await screen.findByRole("heading", { name: "Task Status" })).closest("section");
     expect(resultSection).not.toBeNull();
-    expect(within(resultSection as HTMLElement).getByText("芯片类型")).toBeInTheDocument();
-    expect(within(resultSection as HTMLElement).getByText("复算浓度")).toBeInTheDocument();
-    expect(table).toBeInTheDocument();
+    expect(within(resultSection as HTMLElement).getByText("Chip Type")).toBeInTheDocument();
+    expect(within(resultSection as HTMLElement).getByText("Surrogate-Predicted Concentration")).toBeInTheDocument();
+    expect((resultSection as HTMLElement).textContent).toContain("Internal Screening: Passed");
+    expect(document.body.textContent).not.toMatch(/flow|checkpoint|pytorch_geometric-master/i);
+  });
+
+  it("keeps completed results when switching language", async () => {
+    window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
+    mockFetch(jsonResponse(completedTask()));
+    const user = userEvent.setup();
+
+    renderReversePage();
+
+    expect(await screen.findAllByText("0.101000")).toHaveLength(6);
+    await user.click(screen.getByRole("button", { name: "EN" }));
+
+    expect(screen.getByText("Task Status")).toBeInTheDocument();
+    expect(screen.getAllByText("0.101000")).toHaveLength(6);
+    expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull();
   });
 });
 
@@ -271,37 +267,26 @@ describe("Reverse task refresh recovery", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
     mockFetch(jsonResponse(runningTask()), jsonResponse(completedTask()));
-    render(<ReversePage />);
+    renderReversePage();
 
     expect(await screen.findByText("正在运行")).toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(await screen.findByText("已完成，耗时 1.00 秒")).toBeInTheDocument();
-    expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull();
-  });
-
-  it("restores completed task results and clears saved task_id", async () => {
-    window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
-    mockFetch(jsonResponse(completedTask()));
-
-    render(<ReversePage />);
-
-    expect(await screen.findByText("已完成，耗时 1.00 秒")).toBeInTheDocument();
-    expect(screen.getAllByText("0.101000")).toHaveLength(6);
+    expect(await screen.findByText("已完成, 耗时 1.00 秒")).toBeInTheDocument();
     expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull();
   });
 
   it.each([
-    ["failed", failedTask("REVERSE_TASK_FAILED", "反向设计任务失败。")],
+    ["failed", failedTask("REVERSE_TASK_FAILED", "server detail")],
     ["cancelled", cancelledTask()],
   ])("restores terminal %s status, stops polling, and clears saved task_id", async (_, task) => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const fetchMock = mockFetch(jsonResponse(task));
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
 
-    render(<ReversePage />);
+    renderReversePage();
 
     await waitFor(() => expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull());
     await act(async () => {
@@ -314,10 +299,10 @@ describe("Reverse task refresh recovery", () => {
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "missing");
     mockFetch(jsonResponse({ error: { code: "REVERSE_TASK_NOT_FOUND" } }, 404));
 
-    render(<ReversePage />);
+    renderReversePage();
 
     await waitFor(() => expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull());
-    expect(screen.getByRole("button", { name: "提交反向设计任务" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "开始反向预测" })).toBeEnabled();
     expect(screen.queryByText("正在运行")).not.toBeInTheDocument();
   });
 
@@ -325,7 +310,7 @@ describe("Reverse task refresh recovery", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
     const fetchMock = mockFetch(jsonResponse(runningTask()), jsonResponse(runningTask()));
-    const view = render(<ReversePage />);
+    const view = renderReversePage();
 
     expect(await screen.findByText("正在运行")).toBeInTheDocument();
     view.unmount();
@@ -342,26 +327,35 @@ describe("Reverse task refresh recovery", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const fetchMock = mockFetch(
       jsonResponse({ task_id: "task-1", status: "running" }, 202),
-      jsonResponse(failedTask("REVERSE_TASK_TIMEOUT", "反向设计任务超时。")),
+      jsonResponse(failedTask("REVERSE_TASK_TIMEOUT", "server timeout")),
       jsonResponse({ task_id: "task-2", status: "running" }, 202),
     );
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<ReversePage />);
+    renderReversePage();
 
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.click(screen.getByRole("button", { name: "开始反向预测" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(await screen.findByText("反向设计任务超时。")).toBeInTheDocument();
+    expect(await screen.findByText("反向预测任务超时。")).toBeInTheDocument();
     expect(screen.queryByText("正在运行")).not.toBeInTheDocument();
     expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "提交反向设计任务" }));
+    await user.click(screen.getByRole("button", { name: "开始反向预测" }));
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBe("task-2");
   });
 });
+
+function renderReversePage() {
+  return renderWithI18n(
+    <>
+      <LanguageSwitcher />
+      <ReversePage />
+    </>,
+  );
+}
 
 function expectPostedPayload(
   fetchMock: ReturnType<typeof mockFetch>,

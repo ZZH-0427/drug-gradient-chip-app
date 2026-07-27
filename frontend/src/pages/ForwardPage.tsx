@@ -10,7 +10,6 @@ import {
   FORWARD_WIDTH_MAX,
   FORWARD_WIDTH_MIN,
   FORWARD_WIDTH_STEP,
-  MODEL_LIMIT_MESSAGE,
   cloneExampleForm,
   emptyEditableForm,
   resizeChipRows,
@@ -18,21 +17,28 @@ import {
   type ForwardFormState,
 } from "../domain/forward";
 import { validateForwardForm } from "../domain/validation";
+import { apiClientErrorMessage } from "../i18n/errorMessages";
+import { useI18n } from "../i18n/useI18n";
+import { usePageTitle } from "../i18n/usePageTitle";
 
 type ModelStatusState =
   | { state: "checking" }
   | { state: "ready"; data: ModelStatusResponse }
-  | { state: "unavailable"; message: string }
-  | { state: "backend_offline"; message: string };
+  | { state: "unavailable" }
+  | { state: "backend_offline" };
 
 export function ForwardPage() {
+  const { t } = useI18n();
+  usePageTitle("titles.forward");
   const [modelStatus, setModelStatus] = useState<ModelStatusState>({ state: "checking" });
   const [form, setForm] = useState<ForwardFormState>(() => cloneExampleForm());
-  const [errors, setErrors] = useState<string[]>([]);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [pendingPayload, setPendingPayload] = useState<ForwardPredictionRequest | null>(null);
   const [result, setResult] = useState<ForwardPredictionResponse | null>(null);
-  const [apiError, setApiError] = useState<string | null>(null);
+  const [apiErrorKind, setApiErrorKind] = useState<ApiClientError["kind"] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const validation = useMemo(() => validateForwardForm(form, t), [form, t]);
 
   useEffect(() => {
     let active = true;
@@ -48,13 +54,10 @@ export function ForwardPage() {
           return;
         }
         if (error instanceof ApiClientError && error.kind === "network") {
-          setModelStatus({ state: "backend_offline", message: error.message });
+          setModelStatus({ state: "backend_offline" });
           return;
         }
-        setModelStatus({
-          state: "unavailable",
-          message: "正向模型暂不可用，请检查模型资产和后端状态。",
-        });
+        setModelStatus({ state: "unavailable" });
       });
     return () => {
       active = false;
@@ -64,10 +67,10 @@ export function ForwardPage() {
   const modelReady = modelStatus.state === "ready";
 
   function clearTransientState() {
-    setErrors([]);
+    setShowValidationErrors(false);
     setPendingPayload(null);
     setResult(null);
-    setApiError(null);
+    setApiErrorKind(null);
     setIsSubmitting(false);
   }
 
@@ -90,9 +93,8 @@ export function ForwardPage() {
   }
 
   function confirmParameters() {
-    setApiError(null);
-    const validation = validateForwardForm(form);
-    setErrors(validation.errors);
+    setApiErrorKind(null);
+    setShowValidationErrors(validation.errors.length > 0);
     if (validation.payload) {
       setPendingPayload(validation.payload);
     }
@@ -103,17 +105,17 @@ export function ForwardPage() {
       return;
     }
     if (pendingPayload.chip_count !== CURRENT_MODEL_CHIP_COUNT) {
-      setApiError(MODEL_LIMIT_MESSAGE);
+      setApiErrorKind("unsupported_chip_count");
       return;
     }
     setIsSubmitting(true);
-    setApiError(null);
+    setApiErrorKind(null);
     try {
       const response = await runForwardPrediction(pendingPayload);
       setResult(response);
       setPendingPayload(null);
     } catch (error: unknown) {
-      setApiError(error instanceof ApiClientError ? error.message : "正向预测执行失败，请稍后重试。");
+      setApiErrorKind(error instanceof ApiClientError ? error.kind : "inference_failure");
     } finally {
       setIsSubmitting(false);
     }
@@ -121,35 +123,38 @@ export function ForwardPage() {
 
   const statusLabel = useMemo(() => {
     if (modelStatus.state === "checking") {
-      return "正在检查模型状态";
+      return t("forward.modelChecking");
     }
     if (modelStatus.state === "ready") {
-      return `模型已就绪，输出=${modelStatus.data.public_output}`;
+      return t("forward.modelReady", { output: modelStatus.data.public_output });
     }
-    return modelStatus.message;
-  }, [modelStatus]);
+    if (modelStatus.state === "backend_offline") {
+      return t("errors.network");
+    }
+    return t("forward.modelUnavailable");
+  }, [modelStatus, t]);
 
   return (
     <section className="page-section">
       <div className="section-heading compact">
-        <p className="eyebrow">Forward prediction</p>
-        <h1>正向预测</h1>
-        <p>选择芯片数量并配置各位置参数。当前真实模型仅支持6个芯片。</p>
+        <p className="eyebrow">{t("forward.eyebrow")}</p>
+        <h1>{t("forward.heading")}</h1>
+        <p>{t("forward.description")}</p>
       </div>
 
       <div className={`status-banner ${modelReady ? "ready" : "blocked"}`} role="status">
-        <strong>{modelReady ? "可运行" : "不可运行"}</strong>
+        <strong>{modelReady ? t("common.ready") : t("common.unavailable")}</strong>
         <span>{statusLabel}</span>
       </div>
 
-      {apiError ? (
+      {apiErrorKind ? (
         <div className="message error" role="alert">
-          {apiError}
+          {apiClientErrorMessage(new ApiClientError(apiErrorKind, ""), t)}
         </div>
       ) : null}
-      {errors.length > 0 ? (
+      {showValidationErrors && validation.errors.length > 0 ? (
         <div className="message error" role="alert">
-          {errors.map((error) => (
+          {validation.errors.map((error) => (
             <p key={error}>{error}</p>
           ))}
         </div>
@@ -160,9 +165,9 @@ export function ForwardPage() {
           result={result}
           onBackToEdit={() => setResult(null)}
           onRerun={() => {
-            const validation = validateForwardForm(form);
-            if (validation.payload) {
-              setPendingPayload(validation.payload);
+            const nextValidation = validateForwardForm(form, t);
+            if (nextValidation.payload) {
+              setPendingPayload(nextValidation.payload);
             }
           }}
         />
@@ -195,7 +200,7 @@ export function ForwardPage() {
           onSubmit={submitPrediction}
         />
       ) : null}
-      {isSubmitting ? <div className="loading-layer">正向模型处理中</div> : null}
+      {isSubmitting ? <div className="loading-layer">{t("forward.loading")}</div> : null}
     </section>
   );
 }
@@ -225,6 +230,7 @@ function FormView({
   onClear,
   onConfirm,
 }: FormViewProps) {
+  const { t } = useI18n();
   const canPredict = form.chip_count === CURRENT_MODEL_CHIP_COUNT;
   return (
     <form
@@ -237,7 +243,7 @@ function FormView({
     >
       <div className="form-grid form-grid-wide">
         <label>
-          样本名称
+          {t("common.sampleName")}
           <input
             value={form.sample_name}
             disabled={disabled}
@@ -246,9 +252,9 @@ function FormView({
           />
         </label>
         <label>
-          芯片数量
+          {t("common.numberOfChips")}
           <select
-            aria-label="芯片数量"
+            aria-label={t("common.numberOfChips")}
             value={form.chip_count}
             disabled={disabled}
             onChange={(event) => onChipCountChange(Number(event.target.value))}
@@ -260,13 +266,13 @@ function FormView({
             ))}
           </select>
         </label>
-        <div className="chip-count-summary" aria-label="芯片数量摘要">
-          <span>芯片数量：{form.chip_count}</span>
-          <span>位置数量：{form.chips.length}</span>
-          <span>点位数量：{form.chip_count * 2}</span>
+        <div className="chip-count-summary" aria-label={t("forward.chipCountSummary")}>
+          <span>{t("forward.chipSummary", { count: form.chip_count })}</span>
+          <span>{t("forward.positionSummary", { count: form.chips.length })}</span>
+          <span>{t("forward.pointSummary", { count: form.chip_count * 2 })}</span>
         </div>
         <fieldset className="segmented" disabled={disabled}>
-          <legend>入口设置</legend>
+          <legend>{t("common.inletSelection")}</legend>
           <label>
             <input
               type="radio"
@@ -274,7 +280,7 @@ function FormView({
               checked={form.inletMode === "inlet1"}
               onChange={() => onInletModeChange("inlet1")}
             />
-            inlet1=1, inlet2=0
+            Inlet1=1, Inlet2=0
           </label>
           <label>
             <input
@@ -283,14 +289,14 @@ function FormView({
               checked={form.inletMode === "inlet2"}
               onChange={() => onInletModeChange("inlet2")}
             />
-            inlet1=0, inlet2=1
+            Inlet1=0, Inlet2=1
           </label>
         </fieldset>
       </div>
 
       {!canPredict ? (
         <div className="message inline-warning" role="note">
-          {MODEL_LIMIT_MESSAGE}
+          {t("forward.modelLimit")}
         </div>
       ) : null}
 
@@ -298,25 +304,27 @@ function FormView({
         <table className="input-table">
           <thead>
             <tr>
-              <th>位置</th>
-              <th>点位</th>
-              <th>芯片类型</th>
-              <th>左宽度 mm</th>
-              <th>右宽度 mm</th>
-              <th>左弯曲直道距离 mm</th>
-              <th>右弯曲直道距离 mm</th>
+              <th>{t("common.position")}</th>
+              <th>{t("common.point")}</th>
+              <th>{t("common.chipType")}</th>
+              <th>{t("common.leftWidth")} mm</th>
+              <th>{t("common.rightWidth")} mm</th>
+              <th>{t("common.leftBendDistance")} mm</th>
+              <th>{t("common.rightBendDistance")} mm</th>
             </tr>
           </thead>
           <tbody>
             {form.chips.map((chip) => (
               <tr key={chip.position}>
-                <td>位置 {chip.position}</td>
+                <td>
+                  {t("common.position")} {chip.position}
+                </td>
                 <td>
                   {chip.point_left}/{chip.point_right}
                 </td>
                 <td>
                   <select
-                    aria-label={`位置 ${chip.position} 芯片类型`}
+                    aria-label={`${t("common.position")} ${chip.position} ${t("common.chipType")}`}
                     value={chip.chip_type}
                     disabled={disabled}
                     onChange={(event) => onChipChange(chip.position, "chip_type", event.target.value)}
@@ -330,7 +338,7 @@ function FormView({
                 </td>
                 <td>
                   <NumberInput
-                    label={`位置 ${chip.position} 左宽度`}
+                    label={`${t("common.position")} ${chip.position} ${t("common.leftWidth")}`}
                     value={chip.left_width_mm}
                     disabled={disabled}
                     min={FORWARD_WIDTH_MIN}
@@ -341,7 +349,7 @@ function FormView({
                 </td>
                 <td>
                   <NumberInput
-                    label={`位置 ${chip.position} 右宽度`}
+                    label={`${t("common.position")} ${chip.position} ${t("common.rightWidth")}`}
                     value={chip.right_width_mm}
                     disabled={disabled}
                     min={FORWARD_WIDTH_MIN}
@@ -352,7 +360,7 @@ function FormView({
                 </td>
                 <td>
                   <NumberInput
-                    label={`位置 ${chip.position} 左弯曲直道距离`}
+                    label={`${t("common.position")} ${chip.position} ${t("common.leftBendDistance")}`}
                     value={chip.left_bend_straight_distance_mm}
                     disabled={disabled}
                     step={FORWARD_DISTANCE_STEP}
@@ -363,7 +371,7 @@ function FormView({
                 </td>
                 <td>
                   <NumberInput
-                    label={`位置 ${chip.position} 右弯曲直道距离`}
+                    label={`${t("common.position")} ${chip.position} ${t("common.rightBendDistance")}`}
                     value={chip.right_bend_straight_distance_mm}
                     disabled={disabled}
                     step={FORWARD_DISTANCE_STEP}
@@ -380,13 +388,13 @@ function FormView({
 
       <div className="action-row">
         <button type="button" className="button secondary" disabled={disabled} onClick={onRestoreExample}>
-          恢复示例
+          {t("common.restoreOfficialExample")}
         </button>
         <button type="button" className="button secondary" disabled={disabled} onClick={onClear}>
-          清空参数
+          {t("common.clear")}
         </button>
         <button type="submit" className="button primary" disabled={disabled || !modelReady}>
-          确认参数
+          {t("common.confirmInputs")}
         </button>
       </div>
     </form>
@@ -427,26 +435,31 @@ interface ConfirmDialogProps {
 }
 
 function ConfirmDialog({ payload, isSubmitting, onCancel, onSubmit }: ConfirmDialogProps) {
+  const { t } = useI18n();
   const canSubmit = payload.chip_count === CURRENT_MODEL_CHIP_COUNT;
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <div className="modal">
-        <h2 id="confirm-title">确认正向预测参数</h2>
+        <h2 id="confirm-title">{t("forward.confirmTitle")}</h2>
         <p>
-          样本 {payload.sample_name}，{payload.inlet1 === 1 ? "inlet1=1, inlet2=0" : "inlet1=0, inlet2=1"}，
-          共 {payload.chips.length} 个位置，{payload.chip_count * 2} 个点位。
+          {t("forward.confirmSummary", {
+            sample: payload.sample_name,
+            inlet: payload.inlet1 === 1 ? "Inlet1=1, Inlet2=0" : "Inlet1=0, Inlet2=1",
+            positions: payload.chips.length,
+            points: payload.chip_count * 2,
+          })}
         </p>
         {!canSubmit ? (
           <div className="message inline-warning" role="note">
-            {MODEL_LIMIT_MESSAGE}
+            {t("forward.modelLimit")}
           </div>
         ) : null}
         <div className="action-row">
           <button type="button" className="button secondary" disabled={isSubmitting} onClick={onCancel}>
-            返回编辑
+            {t("common.backToEdit")}
           </button>
           <button type="button" className="button primary" disabled={isSubmitting || !canSubmit} onClick={onSubmit}>
-            运行预测
+            {t("common.runPrediction")}
           </button>
         </div>
       </div>
@@ -461,22 +474,23 @@ interface ResultsViewProps {
 }
 
 function ResultsView({ result, onBackToEdit, onRerun }: ResultsViewProps) {
+  const { t } = useI18n();
   return (
     <div className="tool-panel">
       <div className="result-heading">
         <div>
-          <h2>预测结果</h2>
-          <p>样本：{result.sample_name}</p>
+          <h2>{t("forward.resultTitle")}</h2>
+          <p>{t("forward.resultSample", { sample: result.sample_name })}</p>
         </div>
         <div className="action-row">
           <button type="button" className="button secondary" onClick={onBackToEdit}>
-            返回编辑
+            {t("common.backToEdit")}
           </button>
           <button type="button" className="button primary" onClick={onRerun}>
-            重新运行当前参数
+            {t("forward.rerunCurrent")}
           </button>
           <Link className="button secondary" to="/">
-            返回首页
+            {t("common.backToHome")}
           </Link>
         </div>
       </div>
@@ -484,16 +498,18 @@ function ResultsView({ result, onBackToEdit, onRerun }: ResultsViewProps) {
         <table className="result-table">
           <thead>
             <tr>
-              <th>位置</th>
-              <th>点位</th>
-              <th>芯片类型</th>
-              <th>浓度</th>
+              <th>{t("common.position")}</th>
+              <th>{t("common.point")}</th>
+              <th>{t("common.chipType")}</th>
+              <th>{t("common.predictedConcentration")}</th>
             </tr>
           </thead>
           <tbody>
             {result.predictions.map((item, index) => (
               <tr key={`${item.position}-${item.point}-${index}`}>
-                <td>位置 {item.position || index + 1}</td>
+                <td>
+                  {t("common.position")} {item.position || index + 1}
+                </td>
                 <td>{item.point}</td>
                 <td>{item.chip_type}</td>
                 <td>{formatNumber(item.concentration)}</td>

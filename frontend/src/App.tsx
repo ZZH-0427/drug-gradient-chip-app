@@ -1,20 +1,27 @@
 import { NavLink, Route, Routes } from "react-router-dom";
+import { LanguageSwitcher } from "./i18n/LanguageSwitcher";
+import { useI18n } from "./i18n/useI18n";
 import { ForwardPage } from "./pages/ForwardPage";
 import { HomePage } from "./pages/HomePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { ReversePage } from "./pages/ReversePage";
 
 export default function App() {
+  const { t } = useI18n();
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <NavLink to="/" className="brand">
-          药物浓度梯度芯片预测系统
+          {t("app.fullName")}
         </NavLink>
-        <nav aria-label="主导航">
-          <NavLink to="/forward">正向预测</NavLink>
-          <NavLink to="/reverse">反向设计</NavLink>
-        </nav>
+        <div className="topbar-actions">
+          <nav aria-label={t("app.navLabel")}>
+            <NavLink to="/forward">{t("app.forward")}</NavLink>
+            <NavLink to="/reverse">{t("app.reverse")}</NavLink>
+          </nav>
+          <LanguageSwitcher />
+        </div>
       </header>
       <main>
         <Routes>

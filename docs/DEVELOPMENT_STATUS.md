@@ -10,7 +10,10 @@
   public API and frontend.
 - The frontend can configure 4 through 8 chips, but only 6 can run real forward
   prediction until the official variable-node `forward_predict.py` is updated.
-- Fixed-six reverse design is restored as an asynchronous single-task workflow.
+- Fixed-six Reverse Prediction is available as an asynchronous single-task
+  workflow.
+- The frontend supports `zh-CN` and `en`; Chinese is the default and the
+  selected locale is stored under `drug-gradient-chip.locale`.
 - Local single-port delivery serves `/`, `/forward`, `/reverse`, and API routes
   from port 8000 without Vite.
 
@@ -56,7 +59,7 @@ npm run build
 - Current official forward inference supports exactly 6 chips.
 - 4 through 8 UI configuration is a transition surface; non-six forward
   requests are rejected before model invocation.
-- Reverse design is fixed to 6 chips, may take tens of seconds on CPU, and
+- Reverse Prediction is fixed to 6 chips, may take tens of seconds on CPU, and
   returns a surrogate-model design that still requires independent Fluent/CFD
   validation.
 - Browser interaction is not covered by the automated unit suite.

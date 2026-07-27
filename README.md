@@ -1,7 +1,7 @@
 # Drug Gradient Chip App
 
 Local FastAPI and React application for drug concentration gradient chip
-prediction and fixed-six-chip reverse design.
+forward prediction and fixed-six-chip Reverse Prediction.
 
 ## Current Product Scope
 
@@ -14,10 +14,16 @@ prediction and fixed-six-chip reverse design.
   `chip_count=6` can run real prediction.
 - Non-six forward requests return `UNSUPPORTED_CHIP_COUNT` before the model
   adapter is called.
-- Reverse design is restored for fixed six-chip targets and runs through an
+- Reverse Prediction is available for fixed six-chip targets and runs through an
   asynchronous single-task API.
 - Reverse results require independent Fluent/CFD validation before fabrication
   decisions.
+- The interface supports Chinese and English. Chinese is the default language;
+  the top-right language switcher persists the selection in browser
+  `localStorage` with key `drug-gradient-chip.locale`.
+- Language switching affects only frontend text, `html lang`, and browser tab
+  titles. API routes, request payloads, model checkpoints, and model results are
+  unchanged.
 
 The current official forward model does not support real 4 through 8 variable
 chip inference. That support must wait for an updated official `forward_predict`
@@ -92,6 +98,19 @@ Reverse:
 - At most one reverse task runs at a time.
 - Task state, worker logs, and outputs stay under `.runtime/` and are ignored by
   Git.
+
+## Interface Language
+
+Supported locales are `zh-CN` and `en`; invalid, empty, or unavailable stored
+values fall back to Chinese. The product names are:
+
+- Chinese: `正向预测`, `反向预测`
+- English: `Forward Prediction`, `Reverse Prediction`
+
+The frontend can configure 4 through 8 chips as a transition UI, but the current
+official forward model still allows real prediction only for 6 chips. Reverse
+Prediction remains fixed to 6 chips and still requires independent Fluent/CFD
+validation.
 
 ## Local Single-Port Run
 

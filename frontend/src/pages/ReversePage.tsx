@@ -5,31 +5,27 @@ import {
   createReverseTask,
   getReverseTask,
 } from "../api/client";
-import type { ReverseDesignRequest, ReverseTaskStatusResponse } from "../api/types";
+import type { ApiErrorResponse, ReverseDesignRequest, ReverseTaskStatusResponse } from "../api/types";
 import {
   REVERSE_TARGET_COUNT,
   cloneDefaultReverseRequest,
   validateReverseRequest,
 } from "../domain/reverse";
+import { apiClientErrorMessage, apiErrorCodeMessage } from "../i18n/errorMessages";
+import type { I18nContextValue } from "../i18n/context";
+import { useI18n } from "../i18n/useI18n";
+import { usePageTitle } from "../i18n/usePageTitle";
 
 export const REVERSE_TASK_STORAGE_KEY = "drug-gradient-chip.reverse-task-id";
 
-const TARGET_RANGE_WARNING =
-  "目标浓度中包含超出推荐密集训练范围 [0.10, 0.95] 的数值，请谨慎评估结果。";
 const LEGACY_TARGET_RANGE_WARNING =
   "Target concentrations include values outside the recommended dense training range [0.10, 0.95]; review the result carefully.";
-const INTERNAL_SCREENING_NOTE =
-  "内部筛选仅表示该结构已通过同一 Physics-GNN 代理模型的检查。";
 const LEGACY_INTERNAL_SCREENING_NOTE =
   "Internal screening only means the structure was checked by the same Physics-GNN surrogate model.";
-const CFD_NOTE = "最终设计仍需使用 Fluent/CFD 进行独立验证。";
 const LEGACY_CFD_NOTE = "Final designs should still be independently verified with Fluent/CFD.";
-const RECALCULATED_CONCENTRATION_NOTE =
-  "反向设计中的复算浓度由反向优化所使用的内部代理模型生成，可能与独立正向预测结果存在轻微差异。";
-const DEVICE_VARIATION_NOTE =
-  "反向设计采用数值优化，不同计算设备可能得到不同但均满足代理模型筛选条件的设计方案。";
 
 type InletMode = "inlet1" | "inlet2";
+type ReverseTaskStatus = NonNullable<ReverseTaskStatusResponse["status"]>;
 
 function formatNumber(value: number, digits = 6) {
   return Number.isFinite(value) ? value.toFixed(digits) : "-";
@@ -50,42 +46,34 @@ function isTerminalStatus(status: string | undefined) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-function statusText(status: string | undefined) {
+function statusText(status: string | undefined, t: I18nContextValue["t"]) {
   switch (status) {
     case "queued":
-      return "等待运行";
     case "running":
-      return "正在运行";
     case "preparing_model":
-      return "正在准备模型";
     case "optimizing":
-      return "正在优化结构";
     case "refining":
-      return "正在细化结构";
     case "verifying":
-      return "正在复算验证";
     case "completed":
-      return "已完成";
     case "failed":
-      return "运行失败";
     case "cancelled":
-      return "已取消";
+      return t(`status.${status}` as const);
     default:
-      return "未提交";
+      return t("status.idle");
   }
 }
 
-function localizeReverseMessage(message: string) {
-  if (message === LEGACY_TARGET_RANGE_WARNING) {
-    return TARGET_RANGE_WARNING;
+function localizeReverseMessage(message: string, t: I18nContextValue["t"]) {
+  if (message === LEGACY_TARGET_RANGE_WARNING || message.includes("[0.10, 0.95]")) {
+    return t("reverse.warningTargetRange");
   }
-  if (message === LEGACY_INTERNAL_SCREENING_NOTE) {
-    return INTERNAL_SCREENING_NOTE;
+  if (message === LEGACY_INTERNAL_SCREENING_NOTE || message.includes("Physics-GNN surrogate model")) {
+    return t("reverse.internalScreeningNote");
   }
-  if (message === LEGACY_CFD_NOTE) {
-    return CFD_NOTE;
+  if (message === LEGACY_CFD_NOTE || message.includes("Fluent/CFD")) {
+    return t("reverse.cfdNote");
   }
-  return message;
+  return t("errors.reverse_failed");
 }
 
 function getInletMode(form: ReverseDesignRequest): InletMode {
@@ -93,14 +81,17 @@ function getInletMode(form: ReverseDesignRequest): InletMode {
 }
 
 export function ReversePage() {
+  const { t } = useI18n();
+  usePageTitle("titles.reverse");
   const [form, setForm] = useState<ReverseDesignRequest>(() => cloneDefaultReverseRequest());
   const [task, setTask] = useState<ReverseTaskStatusResponse | null>(null);
-  const [error, setError] = useState<string>("");
+  const [errorKind, setErrorKind] = useState<ApiClientError["kind"] | null>(null);
+  const [fallbackErrorCode, setFallbackErrorCode] = useState<ApiErrorResponse["error"] | undefined>();
   const [submitting, setSubmitting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const pollingRef = useRef<number | null>(null);
 
-  const validationErrors = useMemo(() => validateReverseRequest(form), [form]);
+  const validationErrors = useMemo(() => validateReverseRequest(form, t), [form, t]);
   const isRunning = isRunningStatus(task?.status);
   const inletMode = getInletMode(form);
 
@@ -130,7 +121,7 @@ export function ReversePage() {
           setTask(null);
           return;
         }
-        setError(err instanceof Error ? err.message : "恢复反向任务失败。");
+        setErrorKind(err instanceof ApiClientError ? err.kind : "unexpected");
       });
 
     return () => {
@@ -151,7 +142,7 @@ export function ReversePage() {
           window.sessionStorage.removeItem(REVERSE_TASK_STORAGE_KEY);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "轮询反向任务失败。");
+        setErrorKind(err instanceof ApiClientError ? err.kind : "unexpected");
       }
     }, 3000);
 
@@ -181,9 +172,10 @@ export function ReversePage() {
     if (submitting || isRunning) {
       return;
     }
-    setError("");
+    setErrorKind(null);
+    setFallbackErrorCode(undefined);
     if (validationErrors.length > 0) {
-      setError(validationErrors[0]);
+      setErrorKind("validation");
       return;
     }
     setSubmitting(true);
@@ -197,7 +189,7 @@ export function ReversePage() {
         warnings: [],
       });
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "创建反向设计任务失败。");
+      setErrorKind(err instanceof ApiClientError ? err.kind : "unexpected");
     } finally {
       setSubmitting(false);
     }
@@ -207,14 +199,15 @@ export function ReversePage() {
     if (!task?.task_id || cancelling) {
       return;
     }
-    setError("");
+    setErrorKind(null);
+    setFallbackErrorCode(undefined);
     setCancelling(true);
     try {
       const cancelled = await cancelReverseTask(task.task_id);
       window.sessionStorage.removeItem(REVERSE_TASK_STORAGE_KEY);
       setTask(cancelled);
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "取消反向设计任务失败。");
+      setErrorKind(err instanceof ApiClientError ? err.kind : "unexpected");
     } finally {
       setCancelling(false);
     }
@@ -222,31 +215,43 @@ export function ReversePage() {
 
   function restoreExample() {
     setForm(cloneDefaultReverseRequest());
-    setError("");
+    setErrorKind(null);
+    setFallbackErrorCode(undefined);
   }
+
+  const taskError = task?.error;
 
   return (
     <section className="page-section">
       <div className="section-heading compact">
-        <p className="eyebrow">芯片结构优化</p>
-        <h1>反向设计</h1>
-        <p>输入6个目标浓度，后台运行固定6芯片 Physics-GNN tandem 反向优化。</p>
+        <p className="eyebrow">{t("reverse.eyebrow")}</p>
+        <h1>{t("reverse.heading")}</h1>
+        <p>{t("reverse.description")}</p>
       </div>
 
       <div className="status-banner ready">
         <span className="status-dot ready" />
-        <span>异步任务模式，同一时间最多运行1个反向设计任务。</span>
+        <span>{t("reverse.asyncStatus")}</span>
       </div>
 
-      {error ? <div className="message error">{error}</div> : null}
+      {errorKind ? (
+        <div className="message error" role="alert">
+          {apiClientErrorMessage(new ApiClientError(errorKind, ""), t)}
+        </div>
+      ) : null}
+      {fallbackErrorCode ? (
+        <div className="message error" role="alert">
+          {apiErrorCodeMessage(fallbackErrorCode, t)}
+        </div>
+      ) : null}
       {validationErrors.length > 0 ? (
         <div className="message inline-warning">{validationErrors[0]}</div>
       ) : null}
 
       <div className="tool-panel">
         <fieldset className="segmented reverse-inlet-selector" disabled={isRunning}>
-          <legend>入口设置</legend>
-          <span className="field-hint">选择高浓度入口</span>
+          <legend>{t("common.inletSelection")}</legend>
+          <span className="field-hint">{t("common.selectHighConcentrationInlet")}</span>
           <label>
             <input
               type="radio"
@@ -278,20 +283,22 @@ export function ReversePage() {
             </colgroup>
             <thead>
               <tr>
-                <th>位置</th>
-                <th>点位</th>
-                <th>目标浓度</th>
+                <th>{t("common.position")}</th>
+                <th>{t("common.point")}</th>
+                <th>{t("common.targetConcentration")}</th>
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: REVERSE_TARGET_COUNT }, (_, index) => (
                 <tr key={index}>
-                  <td>位置 {index + 1}</td>
+                  <td>
+                    {t("common.position")} {index + 1}
+                  </td>
                   <td>y{index + 1}</td>
                   <td>
                     <input
                       className="reverse-target-input"
-                      aria-label={`y${index + 1} 目标浓度`}
+                      aria-label={`y${index + 1} ${t("common.targetConcentration")}`}
                       type="number"
                       step="0.01"
                       value={form.target_concentrations[index]}
@@ -312,14 +319,14 @@ export function ReversePage() {
             disabled={submitting || isRunning || validationErrors.length > 0}
             onClick={submit}
           >
-            提交反向设计任务
+            {t("common.startReversePrediction")}
           </button>
           <button className="secondary" type="button" disabled={isRunning} onClick={restoreExample}>
-            恢复官方示例
+            {t("common.restoreOfficialExample")}
           </button>
           {isRunning ? (
             <button className="secondary" type="button" disabled={cancelling} onClick={cancel}>
-              取消任务
+              {t("common.cancelTask")}
             </button>
           ) : null}
         </div>
@@ -329,17 +336,19 @@ export function ReversePage() {
         <section className="tool-panel results-panel">
           <div className="result-heading">
             <div>
-              <h2>任务状态</h2>
+              <h2>{t("reverse.taskStatus")}</h2>
               <p>
-                {statusText(task.status)}
-                {task.elapsed_seconds ? `，耗时 ${formatNumber(task.elapsed_seconds, 2)} 秒` : ""}
+                {statusText(task.status as ReverseTaskStatus, t)}
+                {task.elapsed_seconds
+                  ? `, ${t("common.elapsed")} ${formatNumber(task.elapsed_seconds, 2)} ${t("common.seconds")}`
+                  : ""}
               </p>
             </div>
           </div>
-          {task.error ? <div className="message error">{task.error.message}</div> : null}
+          {taskError ? <div className="message error">{apiErrorCodeMessage(taskError, t)}</div> : null}
           {task.warnings.map((warning) => (
             <div className="message inline-warning" key={warning}>
-              {localizeReverseMessage(warning)}
+              {localizeReverseMessage(warning, t)}
             </div>
           ))}
 
@@ -349,22 +358,30 @@ export function ReversePage() {
                 <div>MAE: {formatNumber(task.result.metrics.mae)}</div>
                 <div>RMSE: {formatNumber(task.result.metrics.rmse)}</div>
                 <div>MaxAE: {formatNumber(task.result.metrics.maxae)}</div>
-                <div>内部筛选: {task.result.metrics.internal_screening_pass ? "通过" : "未通过"}</div>
+                <div>
+                  {t("common.internalScreening")}:{" "}
+                  {task.result.metrics.internal_screening_pass ? t("common.passed") : t("common.notPassed")}
+                </div>
+                <div>Spearman: {formatNumber(task.result.metrics.spearman)}</div>
+                <div>
+                  {t("reverse.selectedRestart")}: {task.result.metrics.selected_restart}
+                </div>
               </div>
               <div className="table-wrap">
                 <table className="result-table">
                   <thead>
                     <tr>
-                      <th>位置</th>
-                      <th>点位</th>
-                      <th>芯片类型</th>
-                      <th>左宽度</th>
-                      <th>右宽度</th>
-                      <th>左距离</th>
-                      <th>右距离</th>
-                      <th>目标浓度</th>
-                      <th>复算浓度</th>
-                      <th>绝对误差</th>
+                      <th>{t("common.position")}</th>
+                      <th>{t("common.point")}</th>
+                      <th>{t("common.chipType")}</th>
+                      <th>{t("common.leftWidth")}</th>
+                      <th>{t("common.rightWidth")}</th>
+                      <th>{t("reverse.bendClass")}</th>
+                      <th>{t("reverse.leftDistance")}</th>
+                      <th>{t("reverse.rightDistance")}</th>
+                      <th>{t("common.targetConcentration")}</th>
+                      <th>{t("common.surrogatePredictedConcentration")}</th>
+                      <th>{t("common.absoluteError")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -375,6 +392,9 @@ export function ReversePage() {
                         <td>{chip.chip_type}</td>
                         <td>{formatNumber(chip.left_width_mm, 3)}</td>
                         <td>{formatNumber(chip.right_width_mm, 3)}</td>
+                        <td>
+                          {chip.left_bend_class}/{chip.right_bend_class}
+                        </td>
                         <td>{formatNumber(chip.left_distance_mm, 0)}</td>
                         <td>{formatNumber(chip.right_distance_mm, 0)}</td>
                         <td>{formatNumber(chip.target_concentration)}</td>
@@ -385,11 +405,11 @@ export function ReversePage() {
                   </tbody>
                 </table>
               </div>
-              <p className="supporting-note">{RECALCULATED_CONCENTRATION_NOTE}</p>
-              <p className="supporting-note">{DEVICE_VARIATION_NOTE}</p>
+              <p className="supporting-note">{t("reverse.recalculatedNote")}</p>
+              <p className="supporting-note">{t("reverse.deviceVariationNote")}</p>
               {task.result.notes.map((note) => (
                 <p className="supporting-note" key={note}>
-                  {localizeReverseMessage(note)}
+                  {localizeReverseMessage(note, t)}
                 </p>
               ))}
             </>

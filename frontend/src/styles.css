@@ -50,6 +50,13 @@ select {
   color: #102033;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
 .topbar nav {
   display: flex;
   gap: 8px;
@@ -65,6 +72,40 @@ select {
 .topbar nav a:hover {
   color: #0d47a1;
   background: #eaf2ff;
+}
+
+.language-switcher {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 1px solid #c8d3e2;
+  border-radius: 7px;
+  background: #f8fafc;
+}
+
+.language-switcher button {
+  min-width: 52px;
+  min-height: 32px;
+  padding: 5px 10px;
+  color: #526174;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+}
+
+.language-switcher button.active {
+  color: #ffffff;
+  background: #0d47a1;
+}
+
+.language-switcher button:focus-visible,
+.topbar a:focus-visible,
+.button:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid #8bb8f5;
+  outline-offset: 2px;
 }
 
 main {
@@ -477,6 +518,15 @@ button:disabled {
     align-items: flex-start;
     flex-direction: column;
     padding: 14px 18px;
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .topbar nav {
+    flex-wrap: wrap;
   }
 
   main {

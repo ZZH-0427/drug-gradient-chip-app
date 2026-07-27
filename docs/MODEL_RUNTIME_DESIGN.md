@@ -28,7 +28,7 @@ is added by the application.
 
 ## Reverse Runtime
 
-Reverse design is fixed to 6 chips and runs as an asynchronous background task.
+Reverse Prediction is fixed to 6 chips and runs as an asynchronous background task.
 The worker process calls the vendored official tandem optimization functions
 with the product defaults from the source script, uses the same seed44
 checkpoint, and returns one final design. It does not read fixed user CSV files

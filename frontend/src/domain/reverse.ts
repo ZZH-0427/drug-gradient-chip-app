@@ -1,4 +1,5 @@
 import type { ReverseDesignRequest } from "../api/types";
+import type { I18nContextValue } from "../i18n/context";
 
 export const REVERSE_TARGET_COUNT = 6;
 export const DEFAULT_REVERSE_REQUEST: ReverseDesignRequest = {
@@ -15,20 +16,23 @@ export function cloneDefaultReverseRequest(): ReverseDesignRequest {
   };
 }
 
-export function validateReverseRequest(payload: ReverseDesignRequest): string[] {
+export function validateReverseRequest(
+  payload: ReverseDesignRequest,
+  t: I18nContextValue["t"],
+): string[] {
   const errors: string[] = [];
   if (!Number.isFinite(payload.inlet1) || !Number.isFinite(payload.inlet2)) {
-    errors.push("入口浓度必须为有限数值。");
+    errors.push(t("reverseValidation.finiteInlets"));
   }
   if (Math.abs(payload.inlet1 - payload.inlet2) < 1e-12) {
-    errors.push("入口1和入口2不能相同。");
+    errors.push(t("reverseValidation.distinctInlets"));
   }
   if (payload.target_concentrations.length !== REVERSE_TARGET_COUNT) {
-    errors.push("反向设计需要恰好6个目标浓度。");
+    errors.push(t("reverseValidation.targetCount", { count: REVERSE_TARGET_COUNT }));
   }
   payload.target_concentrations.forEach((value, index) => {
     if (!Number.isFinite(value)) {
-      errors.push(`y${index + 1}目标浓度必须为有限数值。`);
+      errors.push(t("reverseValidation.finiteTarget", { index: index + 1 }));
     }
   });
   return errors;

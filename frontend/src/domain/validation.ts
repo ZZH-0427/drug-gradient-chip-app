@@ -1,4 +1,5 @@
 import type { ForwardPredictionRequest } from "../api/types";
+import type { I18nContextValue } from "../i18n/context";
 import {
   FORWARD_WIDTH_MAX,
   FORWARD_WIDTH_MIN,
@@ -26,17 +27,17 @@ const numericFields: NumericChipField[] = [
 ];
 const widthFields = ["left_width_mm", "right_width_mm"] as const;
 
-export function validateForwardForm(form: ForwardFormState): ValidationResult {
+export function validateForwardForm(form: ForwardFormState, t: I18nContextValue["t"]): ValidationResult {
   const errors: string[] = [];
   const sampleName = form.sample_name.trim();
   if (!sampleName) {
-    errors.push("样本名称不能为空。");
+    errors.push(t("forward.sampleRequired"));
   }
   if (form.chip_count < MIN_CHIP_COUNT || form.chip_count > MAX_CHIP_COUNT) {
-    errors.push(`芯片数量必须在 ${MIN_CHIP_COUNT} 到 ${MAX_CHIP_COUNT} 之间。`);
+    errors.push(t("forward.chipCountRange", { min: MIN_CHIP_COUNT, max: MAX_CHIP_COUNT }));
   }
   if (form.chips.length !== form.chip_count) {
-    errors.push("芯片位置数量必须与芯片数量一致。");
+    errors.push(t("forward.chipLengthMismatch"));
   }
 
   const chips = form.chips.map((chip) => {
@@ -51,7 +52,7 @@ export function validateForwardForm(form: ForwardFormState): ValidationResult {
 
     for (const field of numericFields) {
       if (parseFinite(chip[field]) === undefined) {
-        errors.push(`位置 ${chip.position} 的数值参数不完整或不是有限数字。`);
+        errors.push(t("forward.numericIncomplete", { position: chip.position }));
         break;
       }
     }
@@ -63,9 +64,8 @@ export function validateForwardForm(form: ForwardFormState): ValidationResult {
         parsedWidth > FORWARD_WIDTH_MAX ||
         !hasValidWidthPrecision(chip[field])
       ) {
-        const side = field === "left_width_mm" ? "左宽度" : "右宽度";
         errors.push(
-          `位置 ${chip.position} ${side}必须在 ${FORWARD_WIDTH_MIN}～${FORWARD_WIDTH_MAX} mm 之间。`,
+          field === "left_width_mm" ? t("forward.leftWidthRange") : t("forward.rightWidthRange"),
         );
       }
     }

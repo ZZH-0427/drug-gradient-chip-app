@@ -8,7 +8,6 @@ import type {
   ReverseTaskStatusResponse,
 } from "./types";
 import { resolveApiBaseUrl } from "./baseUrl";
-import { MODEL_LIMIT_MESSAGE } from "../domain/forward";
 
 const API_BASE_URL = resolveApiBaseUrl({
   configuredUrl: import.meta.env.VITE_API_BASE_URL,
@@ -73,7 +72,7 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API_BASE_URL}${path}`, init);
   } catch {
-    throw new ApiClientError("network", "后端服务不可用，请确认 FastAPI 已启动。");
+    throw new ApiClientError("network", "Network request failed.");
   }
 
   const payload = await readJson(response);
@@ -82,7 +81,7 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   if (!payload || typeof payload !== "object") {
-    throw new ApiClientError("unexpected", "后端返回格式异常。", response.status);
+    throw new ApiClientError("unexpected", "Unexpected response format.", response.status);
   }
   return payload as T;
 }
@@ -98,31 +97,31 @@ async function readJson(response: Response): Promise<ApiErrorResponse | unknown>
 function mapError(status: number, payload: ApiErrorResponse | unknown): ApiClientError {
   const known = payload && typeof payload === "object" ? (payload as ApiErrorResponse).error : undefined;
   if (known?.code === "UNSUPPORTED_CHIP_COUNT") {
-    return new ApiClientError("unsupported_chip_count", MODEL_LIMIT_MESSAGE, status);
+    return new ApiClientError("unsupported_chip_count", "Unsupported chip count.", status);
   }
   if (known?.code === "REVERSE_TASK_BUSY") {
-    return new ApiClientError("reverse_busy", "已有反向设计任务正在运行，请等待完成或取消后再提交。", status);
+    return new ApiClientError("reverse_busy", "Reverse task is busy.", status);
   }
   if (known?.code === "REVERSE_TASK_NOT_FOUND") {
-    return new ApiClientError("reverse_not_found", "未找到反向设计任务。", status);
+    return new ApiClientError("reverse_not_found", "Reverse task was not found.", status);
   }
   if (known?.code === "REVERSE_TASK_NOT_CANCELLABLE") {
-    return new ApiClientError("reverse_not_cancellable", "该反向设计任务当前不可取消。", status);
+    return new ApiClientError("reverse_not_cancellable", "Reverse task cannot be cancelled.", status);
   }
   if (known?.code?.startsWith("REVERSE_")) {
-    return new ApiClientError("reverse_failed", known.message ?? "反向设计任务失败。", status);
+    return new ApiClientError("reverse_failed", "Reverse task failed.", status);
   }
   if (status === 422) {
-    return new ApiClientError("validation", "参数验证失败，请检查芯片参数。", status);
+    return new ApiClientError("validation", "Validation failed.", status);
   }
   if (status === 503) {
-    return new ApiClientError("model_unavailable", "正向模型暂不可用，请检查模型资产和后端状态。", status);
+    return new ApiClientError("model_unavailable", "Model unavailable.", status);
   }
   if (status === 500) {
-    return new ApiClientError("inference_failure", "正向预测执行失败，请稍后重试。", status);
+    return new ApiClientError("inference_failure", "Inference failed.", status);
   }
   if (known?.code) {
-    return new ApiClientError("unexpected", "后端返回了无法处理的错误。", status);
+    return new ApiClientError("unexpected", "Unexpected API error.", status);
   }
-  return new ApiClientError("unexpected", "后端返回格式异常。", status);
+  return new ApiClientError("unexpected", "Unexpected response format.", status);
 }
