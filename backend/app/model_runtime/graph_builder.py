@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
+import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -13,16 +14,17 @@ from app.core.errors import ModelErrorCode, ModelRuntimeError
 from app.schemas.forward import ForwardPredictionRequest
 
 
-EXPECTED_NODE_FEATURE_NAMES = [
-    "left_width_mm",
-    "right_width_mm",
-    "left_bend_straight_distance_mm",
-    "right_bend_straight_distance_mm",
-    "left_position",
-    "right_position",
-    "node_position_norm",
-]
-EXPECTED_EDGE_FEATURE_NAMES = ["signed_position_delta", "absolute_position_delta"]
+EXPECTED_NODE_COUNT = 8
+EXPECTED_CHIP_COUNT = 6
+EXPECTED_NODE_FEATURE_DIM = 15
+EXPECTED_EDGE_COUNT = 24
+EXPECTED_EDGE_FEATURE_DIM = 9
+EXPECTED_GLOBAL_FEATURE_DIM = 2
+EXPECTED_CHIP_PHYSICS_DIM = 7
+INLET1_NODE_INDEX = 0
+INLET2_NODE_INDEX = 1
+CHIP_NODE_START_INDEX = 2
+CHANNEL_PATTERN = re.compile(r"(\d+)\s*to\s*(\d+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,27 @@ class RawGraph:
     edge_index: Tensor
     edge_attr: Tensor
     u: Tensor
+    chip_physics: Tensor
+    chip_physics_z: Tensor
+
+
+@dataclass(frozen=True)
+class InputChip:
+    chip_name: str
+    left_width_mm: float
+    right_width_mm: float
+    left_distance_mm: float
+    right_distance_mm: float
+    left_position: float
+    right_position: float
+
+
+@dataclass(frozen=True)
+class InputSample:
+    sample_name: str
+    inlet1: float
+    inlet2: float
+    chips: tuple[InputChip, ...]
 
 
 def safe_torch_load(path: Path) -> Any:
@@ -40,115 +63,217 @@ def safe_torch_load(path: Path) -> Any:
         return torch.load(path, map_location="cpu")
 
 
-def _payload_graphs(payload: Any) -> tuple[dict[str, Any], list[Any]]:
-    if isinstance(payload, Mapping):
-        graphs = payload.get("graphs")
-        if graphs is None:
-            raise KeyError("physics_gnn_dataset.pt does not contain graphs")
-        return dict(payload), list(graphs)
-    if isinstance(payload, (list, tuple)):
-        return {}, list(payload)
-    raise TypeError(f"Unsupported dataset payload type: {type(payload).__name__}")
+def normalize_tensor(value: Tensor, mean: Tensor, std: Tensor, display_name: str) -> Tensor:
+    mean = mean.detach().cpu().float().reshape(1, -1)
+    std = std.detach().cpu().float().reshape(1, -1)
+    if value.shape[-1] != mean.numel():
+        raise ValueError(f"{display_name} dimension mismatch: {value.shape[-1]} vs {mean.numel()}")
+    safe_std = torch.where(std.abs() < 1.0e-12, torch.ones_like(std), std)
+    return (value.float() - mean) / safe_std
 
 
-def _first_valid_graph(graphs: Sequence[Any]) -> Any:
-    for graph in graphs:
-        if (
-            torch.is_tensor(getattr(graph, "x", None))
-            and torch.is_tensor(getattr(graph, "edge_index", None))
-            and torch.is_tensor(getattr(graph, "edge_attr", None))
-        ):
-            return graph
-    raise ValueError("No valid graph found in physics_gnn_dataset.pt")
+def parse_chip_structure(chip_name: str) -> tuple[float, float, float, float]:
+    match = CHANNEL_PATTERN.search(chip_name)
+    if match is None:
+        raise ValueError(f"Invalid chip_type: {chip_name}")
+    start = float(match.group(1))
+    end = float(match.group(2))
+    if not (1.0 <= start <= 6.0 and 1.0 <= end <= 6.0):
+        raise ValueError(f"chip_type endpoints must be 1..6: {chip_name}")
+    signed_span = end - start
+    return start / 6.0, end / 6.0, signed_span / 5.0, abs(signed_span) / 5.0
 
 
-def _name_list(payload: Mapping[str, Any], graph: Any, keys: Sequence[str]) -> list[str]:
-    for key in keys:
-        value = payload.get(key)
-        if value is None:
-            value = getattr(graph, key, None)
-        if value is None:
-            continue
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        try:
-            result = [str(item).strip() for item in list(value)]
-        except TypeError:
-            continue
-        if result:
-            return result
-    return []
+def build_inlet_node_row(inlet_index: int, concentration: float) -> list[float]:
+    if inlet_index == 1:
+        node_type = [1.0, 0.0, 0.0]
+    elif inlet_index == 2:
+        node_type = [0.0, 1.0, 0.0]
+    else:
+        raise ValueError("inlet_index must be 1 or 2")
+    row = node_type + [float(concentration), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    if len(row) != EXPECTED_NODE_FEATURE_DIM:
+        raise RuntimeError("inlet node feature dimension must be 15")
+    return row
+
+
+def build_chip_node_row(chip: InputChip, chip_index: int) -> list[float]:
+    chip_start_norm, chip_end_norm, chip_signed_span_norm, chip_absolute_span_norm = parse_chip_structure(
+        chip.chip_name
+    )
+    assembly_position_norm = float(chip_index) / float(EXPECTED_CHIP_COUNT - 1)
+    row = [
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        float(chip.left_width_mm),
+        float(chip.right_width_mm),
+        float(chip.left_distance_mm),
+        float(chip.right_distance_mm),
+        float(chip.left_position),
+        float(chip.right_position),
+        assembly_position_norm,
+        chip_start_norm,
+        chip_end_norm,
+        chip_signed_span_norm,
+        chip_absolute_span_norm,
+    ]
+    if len(row) != EXPECTED_NODE_FEATURE_DIM:
+        raise RuntimeError("chip node feature dimension must be 15")
+    return row
+
+
+def build_raw_x(sample: InputSample) -> Tensor:
+    rows = [
+        build_inlet_node_row(1, sample.inlet1),
+        build_inlet_node_row(2, sample.inlet2),
+    ]
+    rows.extend(build_chip_node_row(chip, chip_index) for chip_index, chip in enumerate(sample.chips))
+    x = torch.tensor(rows, dtype=torch.float32)
+    if tuple(x.shape) != (EXPECTED_NODE_COUNT, EXPECTED_NODE_FEATURE_DIM):
+        raise RuntimeError(f"x shape must be (8, 15), got {tuple(x.shape)}")
+    return x
+
+
+def build_raw_edges(sample: InputSample) -> tuple[Tensor, Tensor]:
+    sources: list[int] = []
+    targets: list[int] = []
+    features: list[list[float]] = []
+
+    def append_edge(
+        source: int,
+        target: int,
+        width: float,
+        distance: float,
+        assembly_position_norm: float,
+        chip_signed_span_norm: float,
+        chip_absolute_span_norm: float,
+        side_is_inlet1: float,
+        side_is_inlet2: float,
+        direction_to_chip: float,
+        direction_from_chip: float,
+    ) -> None:
+        sources.append(source)
+        targets.append(target)
+        features.append(
+            [
+                float(width),
+                float(distance),
+                float(assembly_position_norm),
+                float(chip_signed_span_norm),
+                float(chip_absolute_span_norm),
+                float(side_is_inlet1),
+                float(side_is_inlet2),
+                float(direction_to_chip),
+                float(direction_from_chip),
+            ]
+        )
+
+    for chip_index, chip in enumerate(sample.chips):
+        chip_node_index = CHIP_NODE_START_INDEX + chip_index
+        assembly_position_norm = float(chip_index) / float(EXPECTED_CHIP_COUNT - 1)
+        _, _, signed_span_norm, absolute_span_norm = parse_chip_structure(chip.chip_name)
+        append_edge(INLET1_NODE_INDEX, chip_node_index, chip.left_width_mm, chip.left_distance_mm, assembly_position_norm, signed_span_norm, absolute_span_norm, 1.0, 0.0, 1.0, 0.0)
+        append_edge(INLET2_NODE_INDEX, chip_node_index, chip.right_width_mm, chip.right_distance_mm, assembly_position_norm, signed_span_norm, absolute_span_norm, 0.0, 1.0, 1.0, 0.0)
+        append_edge(chip_node_index, INLET1_NODE_INDEX, chip.left_width_mm, chip.left_distance_mm, assembly_position_norm, signed_span_norm, absolute_span_norm, 1.0, 0.0, 0.0, 1.0)
+        append_edge(chip_node_index, INLET2_NODE_INDEX, chip.right_width_mm, chip.right_distance_mm, assembly_position_norm, signed_span_norm, absolute_span_norm, 0.0, 1.0, 0.0, 1.0)
+
+    edge_index = torch.tensor([sources, targets], dtype=torch.long)
+    edge_attr = torch.tensor(features, dtype=torch.float32)
+    if tuple(edge_index.shape) != (2, EXPECTED_EDGE_COUNT):
+        raise RuntimeError(f"edge_index shape must be (2, 24), got {tuple(edge_index.shape)}")
+    if tuple(edge_attr.shape) != (EXPECTED_EDGE_COUNT, EXPECTED_EDGE_FEATURE_DIM):
+        raise RuntimeError(f"edge_attr shape must be (24, 9), got {tuple(edge_attr.shape)}")
+    return edge_index, edge_attr
+
+
+def build_raw_u(sample: InputSample) -> Tensor:
+    u = torch.tensor([[sample.inlet1, sample.inlet2]], dtype=torch.float32)
+    if tuple(u.shape) != (1, EXPECTED_GLOBAL_FEATURE_DIM):
+        raise RuntimeError("u shape must be (1, 2)")
+    return u
+
+
+def build_raw_chip_physics(sample: InputSample) -> Tensor:
+    rows: list[list[float]] = []
+    eps = 1.0e-12
+    for chip_index, chip in enumerate(sample.chips, start=1):
+        left_width = float(chip.left_width_mm)
+        right_width = float(chip.right_width_mm)
+        left_distance = float(chip.left_distance_mm)
+        right_distance = float(chip.right_distance_mm)
+        if min(left_width, right_width, left_distance, right_distance) <= 0.0:
+            raise ValueError(f"chip{chip_index} has non-positive width or distance")
+        width_sum = left_width + right_width
+        distance_sum = left_distance + right_distance
+        rows.append(
+            [
+                math.log((left_width + eps) / (right_width + eps)),
+                (left_width - right_width) / (width_sum + eps),
+                math.sqrt(left_width * right_width),
+                width_sum,
+                math.log((right_distance + eps) / (left_distance + eps)),
+                (right_distance - left_distance) / (distance_sum + eps),
+                math.sqrt(left_distance * right_distance),
+            ]
+        )
+    result = torch.tensor(rows, dtype=torch.float32)
+    if tuple(result.shape) != (EXPECTED_CHIP_COUNT, EXPECTED_CHIP_PHYSICS_DIM):
+        raise RuntimeError(f"chip_physics shape must be (6, 7), got {tuple(result.shape)}")
+    return result
 
 
 class GraphBuilder:
-    def __init__(self, settings: ForwardModelSettings) -> None:
+    def __init__(self, settings: ForwardModelSettings, normalizers: dict[str, Tensor] | None = None) -> None:
         self.settings = settings
-        self.edge_index: Tensor
-        self.edge_attr: Tensor
-        self.node_feature_names: list[str]
-        self.edge_feature_names: list[str]
-        self._load_template()
+        self.normalizers = normalizers
 
-    def _load_template(self) -> None:
-        if not self.settings.dataset_path.exists():
-            raise ModelRuntimeError(
-                ModelErrorCode.MODEL_ASSET_NOT_FOUND,
-                "physics_gnn_dataset.pt was not found.",
-                {"path": str(self.settings.dataset_path)},
+    def _sample_from_request(self, request: ForwardPredictionRequest) -> InputSample:
+        chips = tuple(
+            InputChip(
+                chip_name=chip.chip_type,
+                left_width_mm=float(chip.left_width_mm),
+                right_width_mm=float(chip.right_width_mm),
+                left_distance_mm=float(chip.left_bend_straight_distance_mm),
+                right_distance_mm=float(chip.right_bend_straight_distance_mm),
+                left_position=float(chip.position),
+                right_position=float(chip.position),
             )
-        try:
-            payload, graphs = _payload_graphs(safe_torch_load(self.settings.dataset_path))
-            graph = _first_valid_graph(graphs)
-            self.edge_index = graph.edge_index.detach().cpu().long()
-            self.edge_attr = graph.edge_attr.detach().cpu().float()
-            self.node_feature_names = _name_list(payload, graph, ("node_feature_names", "x_feature_names"))
-            self.edge_feature_names = _name_list(payload, graph, ("edge_feature_names",))
-            if not self.node_feature_names and self.settings.dataset_summary_path.exists():
-                summary = json.loads(self.settings.dataset_summary_path.read_text(encoding="utf-8"))
-                self.node_feature_names = list(summary.get("node_feature_names", []))
-                self.edge_feature_names = list(summary.get("edge_feature_names", []))
-            self._validate_template(graph)
-        except ModelRuntimeError:
-            raise
-        except Exception as exc:
-            raise ModelRuntimeError(
-                ModelErrorCode.MODEL_ASSET_NOT_FOUND,
-                "Failed to load graph template.",
-                {"path": str(self.settings.dataset_path), "error": str(exc)},
-            ) from exc
-
-    def _validate_template(self, graph: Any) -> None:
-        x = graph.x.detach().cpu()
-        if x.shape[0] != 6 or x.shape[1] != 7:
-            raise ValueError(f"Template graph x shape must be [6, 7], got {tuple(x.shape)}")
-        if tuple(self.edge_index.shape) != (2, 10):
-            raise ValueError(f"edge_index shape must be [2, 10], got {tuple(self.edge_index.shape)}")
-        if tuple(self.edge_attr.shape) != (10, 2):
-            raise ValueError(f"edge_attr shape must be [10, 2], got {tuple(self.edge_attr.shape)}")
-        if self.node_feature_names and self.node_feature_names != EXPECTED_NODE_FEATURE_NAMES:
-            raise ValueError(f"node_feature_names mismatch: {self.node_feature_names}")
-        if self.edge_feature_names and self.edge_feature_names != EXPECTED_EDGE_FEATURE_NAMES:
-            raise ValueError(f"edge_feature_names mismatch: {self.edge_feature_names}")
+            for chip in request.chips_by_position()
+        )
+        return InputSample(
+            sample_name=request.sample_name,
+            inlet1=float(request.inlet1),
+            inlet2=float(request.inlet2),
+            chips=chips,
+        )
 
     def build_raw_graph(self, request: ForwardPredictionRequest) -> RawGraph:
-        rows: list[list[float]] = []
-        for chip in request.chips_by_position():
-            position = float(chip.position)
-            rows.append(
-                [
-                    float(chip.left_width_mm),
-                    float(chip.right_width_mm),
-                    float(chip.left_bend_straight_distance_mm),
-                    float(chip.right_bend_straight_distance_mm),
-                    position,
-                    position,
-                    (position - 1.0) / 5.0,
-                ]
+        try:
+            sample = self._sample_from_request(request)
+            raw_x = build_raw_x(sample)
+            raw_edge_index, raw_edge_attr = build_raw_edges(sample)
+            raw_u = build_raw_u(sample)
+            raw_chip_physics = build_raw_chip_physics(sample)
+            chip_physics_z = raw_chip_physics
+            normalizers = getattr(self, "normalizers", None)
+            if normalizers is not None:
+                raw_x = normalize_tensor(raw_x, normalizers["x_mean"], normalizers["x_std"], "x")
+                raw_edge_attr = normalize_tensor(raw_edge_attr, normalizers["edge_mean"], normalizers["edge_std"], "edge_attr")
+                raw_u = normalize_tensor(raw_u, normalizers["u_mean"], normalizers["u_std"], "u")
+                chip_physics_z = normalize_tensor(raw_chip_physics, normalizers["chip_physics_mean"], normalizers["chip_physics_std"], "chip_physics")
+            return RawGraph(
+                x=raw_x,
+                edge_index=raw_edge_index,
+                edge_attr=raw_edge_attr,
+                u=raw_u,
+                chip_physics=raw_chip_physics,
+                chip_physics_z=chip_physics_z,
             )
-
-        return RawGraph(
-            x=torch.tensor(rows, dtype=torch.float32),
-            edge_index=self.edge_index.clone(),
-            edge_attr=self.edge_attr.clone(),
-            u=torch.tensor([[float(request.inlet1), float(request.inlet2)]], dtype=torch.float32),
-        )
+        except Exception as exc:
+            raise ModelRuntimeError(
+                ModelErrorCode.MODEL_INPUT_SCHEMA_ERROR,
+                "Failed to build Physics-GNN graph.",
+                {"error": str(exc)},
+            ) from exc

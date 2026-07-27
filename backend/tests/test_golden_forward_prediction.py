@@ -40,16 +40,12 @@ def test_golden_forward_prediction_matches_source_csv() -> None:
         "inlet1": _float(expected, "inlet1"),
         "inlet2": _float(expected, "inlet2"),
     }
-    assert response.ensemble_seeds == [42, 52, 62, 72, 82]
-
+    assert response.chip_count == 6
     for prediction in response.predictions:
         point = prediction.point
         chip = prediction.chip_type
         assert expected[f"{point}_chip_name"] == chip
-        assert abs(prediction.mean - _float(expected, f"{point}_{chip}_pred_mean")) <= 1e-6
-        assert abs(prediction.std - _float(expected, f"{point}_{chip}_pred_std")) <= 1e-6
-        for seed, value in prediction.seed_values.items():
-            assert abs(value - _float(expected, f"{point}_{chip}_seed_{seed}")) <= 1e-6
+        assert abs(prediction.concentration - _float(expected, f"{point}_concentration")) <= 1e-6
 
 
 @pytest.mark.skipif(
@@ -72,7 +68,4 @@ def test_bundled_and_external_forward_predictions_match(monkeypatch: pytest.Monk
     assert external_settings.asset_source == "external"
     for external_item, bundled_item in zip(external_response.predictions, bundled_response.predictions):
         assert external_item.position == bundled_item.position
-        assert abs(external_item.mean - bundled_item.mean) <= 1e-6
-        assert abs(external_item.std - bundled_item.std) <= 1e-6
-        for seed, external_value in external_item.seed_values.items():
-            assert abs(external_value - bundled_item.seed_values[seed]) <= 1e-6
+        assert abs(external_item.concentration - bundled_item.concentration) <= 1e-6

@@ -24,26 +24,17 @@ def test_result_mapper_returns_plain_structured_output() -> None:
             for position in range(1, 7)
         ],
     )
-    prediction = SimpleNamespace(
-        mean=np.array([[1, 2, 3, 4, 5, 6]], dtype=np.float64),
-        std=np.array([[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]], dtype=np.float64),
-        seed_predictions={
-            42: np.array([[1, 2, 3, 4, 5, 6]], dtype=np.float64),
-            52: np.array([[2, 3, 4, 5, 6, 7]], dtype=np.float64),
-        },
-    )
+    prediction = np.array([[1, 2, 3, 4, 5, 6]], dtype=np.float64)
 
     response = map_prediction_response(request, prediction)
     payload = response.model_dump()
 
     assert payload["sample_name"] == "DP 0"
-    assert payload["ensemble_seeds"] == [42, 52]
+    assert payload["chip_count"] == 6
     assert len(payload["predictions"]) == 6
     assert payload["predictions"][0] == {
         "position": 1,
         "point": "y1",
         "chip_type": "1to1",
-        "mean": 1.0,
-        "std": 0.1,
-        "seed_values": {"42": 1.0, "52": 2.0},
+        "concentration": 1.0,
     }

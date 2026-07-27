@@ -28,6 +28,8 @@ class ModelStatusResponse(BaseModel):
 
     ready: bool
     model_name: str
-    ensemble_size: int
-    seeds: list[int]
+    supported_chip_counts: list[int]
+    public_output: str
     device: str
+    forward: dict[str, object] | None = None
+    reverse: dict[str, object] | None = None

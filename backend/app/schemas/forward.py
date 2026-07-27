@@ -81,9 +81,7 @@ if Field is not None:
         position: int
         point: str
         chip_type: str
-        mean: float
-        std: float
-        seed_values: dict[str, float]
+        concentration: float
 
 
     class ForwardPredictionResponse(BaseModel):
@@ -91,7 +89,7 @@ if Field is not None:
 
         sample_name: str
         inlets: dict[str, float]
-        ensemble_seeds: list[int]
+        chip_count: int
         predictions: list[ForwardPredictionItem]
 
         @model_validator(mode="after")
@@ -101,8 +99,7 @@ if Field is not None:
             for index, item in enumerate(self.predictions, start=1):
                 if item.position != index or item.point != f"y{index}":
                     raise ValueError("predictions must be ordered by position y1..y6")
-                values = [item.mean, item.std, *item.seed_values.values()]
-                if any(not math.isfinite(float(value)) for value in values):
+                if not math.isfinite(float(item.concentration)):
                     raise ValueError("prediction values must be finite")
             return self
 
@@ -168,7 +165,7 @@ else:
                 raise ValueError("sample_name must not be empty")
             self.chip_count = int(chip_count)
             if self.chip_count < MIN_CHIP_COUNT or self.chip_count > MAX_CHIP_COUNT:
-                raise ValueError("chip_count must be between 4 and 10")
+                raise ValueError("chip_count must be between 4 and 8")
             self.inlet1 = _finite_float(inlet1, "inlet1")
             self.inlet2 = _finite_float(inlet2, "inlet2")
             self.chips = [
@@ -192,19 +189,12 @@ else:
             position: int,
             point: str,
             chip_type: str,
-            mean: Any,
-            std: Any,
-            seed_values: dict[str, Any],
+            concentration: Any,
         ) -> None:
             self.position = int(position)
             self.point = str(point)
             self.chip_type = str(chip_type)
-            self.mean = _finite_float(mean, "mean")
-            self.std = _finite_float(std, "std")
-            self.seed_values = {
-                str(seed): _finite_float(value, f"seed_{seed}")
-                for seed, value in seed_values.items()
-            }
+            self.concentration = _finite_float(concentration, "concentration")
 
 
     class ForwardPredictionResponse(_DumpMixin):
@@ -213,12 +203,12 @@ else:
             *,
             sample_name: str,
             inlets: dict[str, Any],
-            ensemble_seeds: list[int],
+            chip_count: int,
             predictions: list[Any],
         ) -> None:
             self.sample_name = str(sample_name)
             self.inlets = {key: _finite_float(value, key) for key, value in inlets.items()}
-            self.ensemble_seeds = [int(seed) for seed in ensemble_seeds]
+            self.chip_count = int(chip_count)
             self.predictions = [
                 item if isinstance(item, ForwardPredictionItem) else ForwardPredictionItem(**item)
                 for item in predictions

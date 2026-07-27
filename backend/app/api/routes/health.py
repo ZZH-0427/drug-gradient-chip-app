@@ -35,11 +35,21 @@ def model_status(
             },
         )
 
-    seeds = model_state.seeds or []
     return ModelStatusResponse(
         ready=True,
         model_name=model_state.model_name,
-        ensemble_size=len(seeds),
-        seeds=seeds,
+        supported_chip_counts=model_state.supported_chip_counts or [6],
+        public_output=model_state.public_output,
         device=model_state.device,
+        forward={
+            "ready": True,
+            "supported_chip_counts": [6],
+            "output": "concentration",
+        },
+        reverse={
+            "ready": True,
+            "supported_chip_counts": [6],
+            "execution_mode": "async",
+            "max_concurrent_tasks": 1,
+        },
     )

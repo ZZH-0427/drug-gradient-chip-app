@@ -131,7 +131,6 @@ $comparisons = 0
 for ($payloadIndex = 0; $payloadIndex -lt $baseline.Count; $payloadIndex++) {
     $left = $baseline[$payloadIndex]
     $right = $candidate[$payloadIndex]
-    if (($left.ensemble_seeds -join ",") -ne ($right.ensemble_seeds -join ",")) { throw "Ensemble seeds differ for payload $payloadIndex." }
     if ($left.predictions.Count -ne $right.predictions.Count) { throw "Prediction count differs for payload $payloadIndex." }
     for ($i = 0; $i -lt $left.predictions.Count; $i++) {
         $a = $left.predictions[$i]
@@ -139,25 +138,13 @@ for ($payloadIndex = 0; $payloadIndex -lt $baseline.Count; $payloadIndex++) {
         if ($a.position -ne $b.position -or $a.point -ne $b.point -or $a.chip_type -ne $b.chip_type) {
             throw "Prediction order or labels differ for payload $payloadIndex position $($i + 1)."
         }
-        foreach ($field in @("mean", "std")) {
-            $av = [double]$a.$field
-            $bv = [double]$b.$field
-            $abs = [math]::Abs($av - $bv)
-            $rel = if ([math]::Abs($av) -gt 0) { $abs / [math]::Abs($av) } else { $abs }
-            $maxAbs = [math]::Max($maxAbs, $abs)
-            $maxRel = [math]::Max($maxRel, $rel)
-            $comparisons += 1
-        }
-        foreach ($seed in $left.ensemble_seeds) {
-            $key = [string]$seed
-            $av = [double]$a.seed_values.$key
-            $bv = [double]$b.seed_values.$key
-            $abs = [math]::Abs($av - $bv)
-            $rel = if ([math]::Abs($av) -gt 0) { $abs / [math]::Abs($av) } else { $abs }
-            $maxAbs = [math]::Max($maxAbs, $abs)
-            $maxRel = [math]::Max($maxRel, $rel)
-            $comparisons += 1
-        }
+        $av = [double]$a.concentration
+        $bv = [double]$b.concentration
+        $abs = [math]::Abs($av - $bv)
+        $rel = if ([math]::Abs($av) -gt 0) { $abs / [math]::Abs($av) } else { $abs }
+        $maxAbs = [math]::Max($maxAbs, $abs)
+        $maxRel = [math]::Max($maxRel, $rel)
+        $comparisons += 1
     }
 }
 

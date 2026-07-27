@@ -10,7 +10,7 @@ from app.schemas.forward import ForwardPredictionRequest, ForwardPredictionRespo
 class ForwardAdapterProtocol(Protocol):
     settings: object
     models: list[object]
-    ensemble: object
+    device: object
 
     def predict(self, request: ForwardPredictionRequest) -> ForwardPredictionResponse:
         ...
@@ -22,8 +22,9 @@ class ForwardModelState:
     adapter: ForwardAdapterProtocol | None = None
     error_code: str | None = None
     error_message: str | None = None
-    model_name: str = "forward-ensemble"
-    seeds: list[int] | None = None
+    model_name: str = "physics-gnn"
+    supported_chip_counts: list[int] | None = None
+    public_output: str = "concentration"
     device: str = "unknown"
 
     @classmethod
@@ -32,21 +33,17 @@ class ForwardModelState:
             ready=False,
             error_code=code,
             error_message=message,
-            seeds=list(DEFAULT_SEEDS),
+            supported_chip_counts=[6],
         )
 
     @classmethod
     def ready_state(cls, adapter: ForwardAdapterProtocol) -> "ForwardModelState":
-        seeds = [int(getattr(model, "seed")) for model in getattr(adapter, "models", [])]
-        if not seeds:
-            seeds = list(DEFAULT_SEEDS)
         device = "unknown"
-        ensemble = getattr(adapter, "ensemble", None)
-        if ensemble is not None:
-            device = str(getattr(ensemble, "device", "unknown"))
+        if getattr(adapter, "device", None) is not None:
+            device = str(getattr(adapter, "device", "unknown"))
         return cls(
             ready=True,
             adapter=adapter,
-            seeds=seeds,
+            supported_chip_counts=[6],
             device=device,
         )

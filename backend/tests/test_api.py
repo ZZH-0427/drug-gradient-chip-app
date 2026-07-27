@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import os
@@ -44,8 +44,8 @@ def sample_payload() -> dict[str, object]:
 
 class FakeForwardAdapter:
     def __init__(self) -> None:
-        self.models = [SimpleNamespace(seed=seed) for seed in [42, 52, 62, 72, 82]]
-        self.ensemble = SimpleNamespace(device="cpu")
+        self.models = [SimpleNamespace(seed=44)]
+        self.device = "cpu"
         self.predict_calls = 0
 
     def predict(self, request: object) -> ForwardPredictionResponse:
@@ -53,21 +53,13 @@ class FakeForwardAdapter:
         return ForwardPredictionResponse(
             sample_name="DP 0",
             inlets={"inlet1": 1.0, "inlet2": 0.0},
-            ensemble_seeds=[42, 52, 62, 72, 82],
+            chip_count=6,
             predictions=[
                 ForwardPredictionItem(
                     position=position,
                     point=f"y{position}",
                     chip_type=chip_type,
-                    mean=float(position),
-                    std=float(position) / 10.0,
-                    seed_values={
-                        "42": float(position),
-                        "52": float(position + 1),
-                        "62": float(position + 2),
-                        "72": float(position + 3),
-                        "82": float(position + 4),
-                    },
+                    concentration=float(position),
                 )
                 for position, chip_type in enumerate(
                     ["5to4", "4to2", "1to6", "2to4", "6to3", "3to1"],
@@ -100,10 +92,21 @@ def test_model_status_ready_with_fake_adapter() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "ready": True,
-        "model_name": "forward-ensemble",
-        "ensemble_size": 5,
-        "seeds": [42, 52, 62, 72, 82],
+        "model_name": "physics-gnn",
+        "supported_chip_counts": [6],
+        "public_output": "concentration",
         "device": "cpu",
+        "forward": {
+            "ready": True,
+            "supported_chip_counts": [6],
+            "output": "concentration",
+        },
+        "reverse": {
+            "ready": True,
+            "supported_chip_counts": [6],
+            "execution_mode": "async",
+            "max_concurrent_tasks": 1,
+        },
     }
 
 
@@ -132,15 +135,10 @@ def test_forward_with_fake_adapter_returns_six_predictions() -> None:
     assert len(payload["predictions"]) == 6
     first = payload["predictions"][0]
     assert first["position"] == 1
-    assert first["mean"] == 1.0
-    assert first["std"] == 0.1
-    assert first["seed_values"] == {
-        "42": 1.0,
-        "52": 2.0,
-        "62": 3.0,
-        "72": 4.0,
-        "82": 5.0,
-    }
+    assert first["concentration"] == 1.0
+    assert "mean" not in first
+    assert "std" not in first
+    assert "seed_values" not in first
 
 
 def test_forward_with_explicit_six_chip_count_returns_six_predictions() -> None:
@@ -154,7 +152,7 @@ def test_forward_with_explicit_six_chip_count_returns_six_predictions() -> None:
     assert len(response.json()["predictions"]) == 6
 
 
-@pytest.mark.parametrize("chip_count", [4, 10])
+@pytest.mark.parametrize("chip_count", [4, 5, 7, 8])
 def test_forward_rejects_supported_future_chip_counts_before_adapter_call(chip_count: int) -> None:
     adapter = FakeForwardAdapter()
     payload = sample_payload()
@@ -181,18 +179,14 @@ def test_forward_rejects_supported_future_chip_counts_before_adapter_call(chip_c
 
     assert response.status_code == 422
     body = response.json()
-    assert body == {
-        "error": {
-            "code": "UNSUPPORTED_CHIP_COUNT",
-            "message": "当前模型仅支持6个芯片。其他数量将在可变节点模型接入后开放。",
-        }
-    }
+    assert body["error"]["code"] == "UNSUPPORTED_CHIP_COUNT"
+    assert "6" in body["error"]["message"]
     assert adapter.predict_calls == 0
     assert "pytorch_geometric-master" not in response.text
     assert "best_ablation_checkpoint.pt" not in response.text
 
 
-@pytest.mark.parametrize("chip_count", [3, 11])
+@pytest.mark.parametrize("chip_count", [3, 9, 10])
 def test_forward_rejects_out_of_range_chip_count_as_schema_error(chip_count: int) -> None:
     payload = sample_payload()
     payload["chip_count"] = chip_count
@@ -367,22 +361,18 @@ def test_model_load_failure_keeps_app_alive_without_exposing_local_path() -> Non
         }
     }
 
-    # HTTP 服务本身仍然可用。
     assert health.status_code == 200
     assert health.json() == {
         "status": "ok",
         "service": "drug-gradient-chip-api",
     }
 
-    # 模型状态接口返回稳定的通用错误。
     assert status.status_code == 503
     assert status.json() == expected_error
 
-    # 正向预测接口在模型未就绪时返回同样的通用错误。
     assert forward.status_code == 503
     assert forward.json() == expected_error
 
-    # 客户端响应不得暴露本地目录、checkpoint 名称或底层异常信息。
     for response in (status, forward):
         assert "pytorch_geometric-master" not in response.text
         assert "best_ablation_checkpoint.pt" not in response.text
@@ -409,5 +399,8 @@ def test_real_forward_api_matches_direct_adapter_golden_output() -> None:
         point = item["point"]
         chip = item["chip_type"]
         assert expected[f"{point}_chip_name"] == chip
-        assert abs(item["mean"] - float(expected[f"{point}_{chip}_pred_mean"])) <= 1e-6
-        assert abs(item["std"] - float(expected[f"{point}_{chip}_pred_std"])) <= 1e-6
+        assert abs(item["concentration"] - float(expected[f"{point}_concentration"])) <= 1e-6
+        assert "flow" not in item
+        assert "mean" not in item
+        assert "std" not in item
+        assert "seed_values" not in item

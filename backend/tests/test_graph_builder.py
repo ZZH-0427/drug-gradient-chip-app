@@ -10,14 +10,6 @@ from app.schemas.forward import ForwardPredictionRequest
 
 def test_graph_builder_generates_expected_raw_tensors() -> None:
     builder = GraphBuilder.__new__(GraphBuilder)
-    builder.edge_index = torch.tensor(
-        [
-            [0, 1, 1, 2, 2, 3, 3, 4, 4, 5],
-            [1, 0, 2, 1, 3, 2, 4, 3, 5, 4],
-        ],
-        dtype=torch.long,
-    )
-    builder.edge_attr = torch.zeros((10, 2), dtype=torch.float32)
 
     request = ForwardPredictionRequest(
         sample_name="DP 0",
@@ -38,13 +30,15 @@ def test_graph_builder_generates_expected_raw_tensors() -> None:
 
     graph = builder.build_raw_graph(request)
 
-    assert tuple(graph.x.shape) == (6, 7)
-    assert tuple(graph.edge_index.shape) == (2, 10)
-    assert tuple(graph.edge_attr.shape) == (10, 2)
+    assert tuple(graph.x.shape) == (8, 15)
+    assert tuple(graph.edge_index.shape) == (2, 24)
+    assert tuple(graph.edge_attr.shape) == (24, 9)
     assert tuple(graph.u.shape) == (1, 2)
+    assert tuple(graph.chip_physics.shape) == (6, 7)
+    assert tuple(graph.chip_physics_z.shape) == (6, 7)
 
     torch.testing.assert_close(
-        graph.x[:, 4],
+        graph.x[2:, 8],
         torch.tensor(
             [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             dtype=graph.x.dtype,
@@ -53,7 +47,7 @@ def test_graph_builder_generates_expected_raw_tensors() -> None:
     )
 
     torch.testing.assert_close(
-        graph.x[:, 5],
+        graph.x[2:, 9],
         torch.tensor(
             [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             dtype=graph.x.dtype,
@@ -62,7 +56,7 @@ def test_graph_builder_generates_expected_raw_tensors() -> None:
     )
 
     torch.testing.assert_close(
-        graph.x[:, 6],
+        graph.x[2:, 10],
         torch.tensor(
             [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
             dtype=graph.x.dtype,

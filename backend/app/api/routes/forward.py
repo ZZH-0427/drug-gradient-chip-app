@@ -37,7 +37,7 @@ def predict_forward(
             content={
                 "error": {
                     "code": "UNSUPPORTED_CHIP_COUNT",
-                    "message": "当前模型仅支持6个芯片。其他数量将在可变节点模型接入后开放。",
+                    "message": "当前正式模型仅支持 6 个芯片。其他数量将在正式可变节点模型接入后开放。",
                 }
             },
         )
