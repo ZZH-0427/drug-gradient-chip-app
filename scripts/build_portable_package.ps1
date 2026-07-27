@@ -592,7 +592,7 @@ try {
         Copy-DirectoryContents -Source (Join-Path $root $dir) -Destination (Join-Path $stageRoot $dir)
     }
     New-Item -ItemType Directory -Force -Path (Join-Path $stageRoot "scripts") | Out-Null
-    foreach ($script in @("start_local_app.ps1", "status_local_app.ps1", "stop_local_app.ps1", "verify_forward_assets.ps1")) {
+    foreach ($script in @("local_app_lifecycle.ps1", "start_local_app.ps1", "status_local_app.ps1", "stop_local_app.ps1", "verify_forward_assets.ps1")) {
         Copy-Item -LiteralPath (Join-Path $root "scripts\$script") -Destination (Join-Path $stageRoot "scripts\$script") -Force
     }
     foreach ($file in @("start_app.cmd", "status_app.cmd", "stop_app.cmd", "VERSION")) {

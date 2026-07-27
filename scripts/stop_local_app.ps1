@@ -12,21 +12,7 @@ function Write-Fail([string]$Message) {
     Write-Host "[error] $Message"
 }
 
-function Get-RepositoryRoot {
-    return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-}
-
-function Get-StatePath([string]$Root) {
-    return Join-Path (Join-Path $Root ".runtime") "app-state.json"
-}
-
-function Get-ProcessCommandLine([int]$TargetProcessId) {
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$TargetProcessId" -ErrorAction SilentlyContinue
-    if ($null -eq $process) {
-        return ""
-    }
-    return [string]$process.CommandLine
-}
+. (Join-Path $PSScriptRoot "local_app_lifecycle.ps1")
 
 function Wait-PortReleased([int]$Port) {
     $deadline = (Get-Date).AddSeconds(20)
@@ -41,29 +27,27 @@ function Wait-PortReleased([int]$Port) {
 }
 
 try {
-    $root = Get-RepositoryRoot
-    $statePath = Get-StatePath -Root $root
+    $root = Get-LocalAppRepositoryRoot
+    $statePath = Get-LocalAppStatePath -Root $root
     if (-not (Test-Path -LiteralPath $statePath)) {
         Write-Info "Application is not running."
         exit 0
     }
 
-    $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-    $stateRoot = (Resolve-Path -LiteralPath ([string]$state.repository_root)).Path
-    if ($stateRoot -ne $root) {
+    $state = Read-LocalAppState -Path $statePath
+    if (-not (Test-LocalAppPathEqual -Left ([string]$state.application_root) -Right $root)) {
         throw "State repository_root does not match current project; refusing to stop process."
     }
 
     $targetProcessId = [int]$state.pid
-    $process = Get-Process -Id $targetProcessId -ErrorAction SilentlyContinue
-    if ($null -eq $process) {
+    $processInfo = Get-LocalAppProcessInfo -TargetProcessId $targetProcessId
+    if ($null -eq $processInfo) {
         Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
         Write-Info "Stale PID found; state file removed."
         exit 0
     }
 
-    $commandLine = Get-ProcessCommandLine -TargetProcessId $targetProcessId
-    if ($process.ProcessName -notlike "python*" -or $commandLine -notlike "*uvicorn*" -or $commandLine -notlike "*backend.app.main:app*") {
+    if (-not (Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $processInfo)) {
         throw "PID $targetProcessId is not this project's Uvicorn process; refusing to stop it."
     }
 

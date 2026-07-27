@@ -10,21 +10,7 @@ function Write-Status([string]$Name, [object]$Value) {
     Write-Host ("{0}: {1}" -f $Name, $Value)
 }
 
-function Get-RepositoryRoot {
-    return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-}
-
-function Get-StatePath([string]$Root) {
-    return Join-Path (Join-Path $Root ".runtime") "app-state.json"
-}
-
-function Get-ProcessCommandLine([int]$TargetProcessId) {
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$TargetProcessId" -ErrorAction SilentlyContinue
-    if ($null -eq $process) {
-        return ""
-    }
-    return [string]$process.CommandLine
-}
+. (Join-Path $PSScriptRoot "local_app_lifecycle.ps1")
 
 function Test-Health([string]$Url) {
     try {
@@ -45,31 +31,25 @@ function Test-ModelReady([string]$Url) {
 }
 
 try {
-    $root = Get-RepositoryRoot
-    $statePath = Get-StatePath -Root $root
+    $root = Get-LocalAppRepositoryRoot
+    $statePath = Get-LocalAppStatePath -Root $root
     if (-not (Test-Path -LiteralPath $statePath)) {
         Write-Status "status" "stopped"
         Write-Status "state_file" $statePath
         exit 0
     }
 
-    $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    $state = Read-LocalAppState -Path $statePath
     $targetProcessId = [int]$state.pid
-    $process = Get-Process -Id $targetProcessId -ErrorAction SilentlyContinue
-    $exists = $null -ne $process
-    $commandLine = if ($exists) { Get-ProcessCommandLine -TargetProcessId $targetProcessId } else { "" }
-    $stateRoot = ""
-    try {
-        $stateRoot = (Resolve-Path -LiteralPath ([string]$state.repository_root)).Path
-    } catch {
-        $stateRoot = [string]$state.repository_root
-    }
-    $validProcess = $exists -and $stateRoot -eq $root -and $commandLine -like "*uvicorn*" -and $commandLine -like "*backend.app.main:app*"
+    $processInfo = Get-LocalAppProcessInfo -TargetProcessId $targetProcessId
+    $exists = $null -ne $processInfo
+    $validProcess = Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $processInfo
 
     if (-not $validProcess) {
         Write-Status "status" "stale"
         Write-Status "pid" $targetProcessId
         Write-Status "process_exists" $exists
+        Write-Status "project_process" $false
         Write-Status "url" $state.url
         Write-Status "logs" "$($state.stdout_log), $($state.stderr_log)"
         if ($CleanStale) {
@@ -97,6 +77,7 @@ try {
         Write-Status "build_commit" $state.build_commit
     }
     Write-Status "process_exists" $exists
+    Write-Status "project_process" $true
     Write-Status "health" $healthOk
     Write-Status "model_ready" $modelReady
     Write-Status "logs" "$($state.stdout_log), $($state.stderr_log)"

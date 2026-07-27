@@ -22,8 +22,9 @@ $ErrorActionPreference = "Stop"
 function Info([string]$Message) { Write-Host "[info] $Message" }
 function Fail([string]$Message) { Write-Host "[error] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
-function RepoRoot { return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
-function StatePath([string]$Root) { return Join-Path (Join-Path $Root ".runtime") "app-state.json" }
+. (Join-Path $PSScriptRoot "local_app_lifecycle.ps1")
+function RepoRoot { return Get-LocalAppRepositoryRoot }
+function StatePath([string]$Root) { return Get-LocalAppStatePath -Root $Root }
 function RuntimeReadyMarkerPath([string]$Root) { return Join-Path (Join-Path $Root "runtime") ".conda-unpacked" }
 function Quote-ProcessArgument([string]$Value) {
     if ($Value -notmatch '[\s"]') { return $Value }
@@ -40,21 +41,16 @@ function ResolveRuntimeMode([string]$Root, [string]$RequestedMode) {
     return "development"
 }
 function ProcLine([int]$TargetProcessId) {
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$TargetProcessId" -ErrorAction SilentlyContinue
+    $process = Get-LocalAppProcessInfo -TargetProcessId $TargetProcessId
     if ($null -eq $process) { return "" }
     return [string]$process.CommandLine
 }
 function IsOurState($State, [string]$Root) {
     if ($null -eq $State) { return $false }
-    $targetProcessId = [int]$State.pid
-    if ($null -eq (Get-Process -Id $targetProcessId -ErrorAction SilentlyContinue)) { return $false }
-    $stateRoot = (Resolve-Path -LiteralPath ([string]$State.repository_root)).Path
-    $line = ProcLine -TargetProcessId $targetProcessId
-    return $stateRoot -eq $Root -and $line -like "*uvicorn*" -and $line -like "*backend.app.main:app*"
+    return Test-LocalAppProcessIdentity -State $State -Root $Root
 }
 function ReadState([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return $null }
-    return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    return Read-LocalAppState -Path $Path
 }
 function ResolvePython([string]$EnvironmentName, [string]$OverridePath) {
     if ($OverridePath.Trim()) {
@@ -350,7 +346,7 @@ try {
     $env:FORWARD_MODEL_DEVICE = $Device
     $env:SERVE_FRONTEND = "true"
     $env:FRONTEND_DIST_DIR = Join-Path $root "frontend\dist"
-    $args = @("-m", "uvicorn", "backend.app.main:app", "--host", $HostAddress, "--port", [string]$Port)
+    $args = @("-m", "uvicorn", "backend.app.main:app", "--app-dir", $root, "--host", $HostAddress, "--port", [string]$Port)
     if ($Foreground) {
         Info "Starting foreground app at $url"
         & $python @args
@@ -358,9 +354,24 @@ try {
     }
     Info "Starting app at $url"
     $process = Start-Process -FilePath $python -ArgumentList $args -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+    $processInfo = $null
+    $processInfoDeadline = (Get-Date).AddSeconds(10)
+    do {
+        $processInfo = Get-LocalAppProcessInfo -TargetProcessId $process.Id
+        if ($null -ne $processInfo -and -not [string]::IsNullOrWhiteSpace($processInfo.CreationTimeUtc)) { break }
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $processInfoDeadline)
+    if ($null -eq $processInfo) {
+        Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+        throw "Could not read Uvicorn process identity after startup."
+    }
     $state = [ordered]@{
         schema_version = 1
         pid = $process.Id
+        process_start_time_utc = $processInfo.CreationTimeUtc
+        executable_path = $processInfo.ExecutablePath
+        application_root = $root
+        app_module = "backend.app.main:app"
         runtime_mode = $resolvedRuntimeMode
         host = $HostAddress
         port = $Port
@@ -376,7 +387,7 @@ try {
         $state["application_version"] = [string]$buildInfo.version
         $state["build_commit"] = [string]$buildInfo.build_commit
     }
-    $state | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $stateFile -Encoding UTF8
+    Write-LocalAppStateAtomically -Path $stateFile -Value $state
     try {
         WaitJson -Uri "$url/api/v1/health" -TimeoutSeconds $StartupTimeoutSeconds -TargetProcessId $process.Id -StdoutLog $stdoutLog -StderrLog $stderrLog | Out-Null
         $model = WaitJson -Uri "$url/api/v1/model-status" -TimeoutSeconds $StartupTimeoutSeconds -TargetProcessId $process.Id -StdoutLog $stdoutLog -StderrLog $stderrLog

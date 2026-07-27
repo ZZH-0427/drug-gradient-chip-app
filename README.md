@@ -120,7 +120,7 @@ Start the API from the repository root:
 conda activate drug-chip
 Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue
 $env:FORWARD_MODEL_DEVICE = "cpu"
-python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+python -m uvicorn backend.app.main:app --app-dir . --host 127.0.0.1 --port 8000
 ```
 
 Base URL:
@@ -279,7 +279,7 @@ http://127.0.0.1:8000
 
 The start script checks the repository layout, verifies bundled forward model
 assets, locates the `drug-chip` Conda Python, builds `frontend/dist` only when
-needed, starts one Uvicorn/FastAPI process, writes `.runtime/app-state.json`,
+needed, starts one Uvicorn/FastAPI process with `--app-dir`, writes `.runtime/app-state.json`,
 and stores logs under `.runtime/logs/`.
 
 Useful commands:
@@ -320,8 +320,10 @@ Troubleshooting:
 - If `drug-chip` cannot be found, create it from `environment-py311.yml` or pass
   `-PythonPath` to a valid environment Python.
 - If frontend build fails, inspect npm output and rerun with `-RebuildFrontend`.
-- If status reports `stale`, run `status_local_app.ps1 -CleanStale` or
-  `stop_local_app.ps1` to clear invalid state.
+- If status reports `stale`, run `status_local_app.ps1 -CleanStale` to clear
+  invalid state. `stop_local_app.ps1` only stops a process whose PID, start
+  time, Python executable, app module, host, port, and `--app-dir` match the
+  state file, so unrelated Uvicorn processes are not stopped.
 
 ## Windows Portable Package
 
@@ -421,7 +423,7 @@ separate manual execution on such a machine.
 Development mode remains split across two services:
 
 ```powershell
-python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+python -m uvicorn backend.app.main:app --app-dir . --host 127.0.0.1 --port 8000
 cd frontend
 npm run dev -- --host 127.0.0.1
 ```
