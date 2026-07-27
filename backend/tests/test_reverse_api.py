@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime
+from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
 from app.api.routes.reverse import get_reverse_task_manager
 from app.main import create_app
+from app.model_runtime import reverse_tasks
 from app.model_runtime.reverse_tasks import ReverseTaskManager
 from app.schemas.reverse import ReverseTaskStatusResponse
 
@@ -211,3 +215,75 @@ def test_completed_worker_payload_does_not_expose_nested_elapsed_seconds(tmp_pat
     assert status.elapsed_seconds is not None
     assert status.result is not None
     assert "elapsed_seconds" not in status.result.model_dump()
+
+
+def test_running_reverse_task_timeout_marks_failed_and_kills_worker(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    task_id = "task-timeout"
+    started_at = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+    write_state(
+        tmp_path,
+        task_id,
+        {
+            "schema_version": 1,
+            "task_id": task_id,
+            "status": "running",
+            "created_at": started_at,
+            "started_at": started_at,
+            "finished_at": None,
+            "pid": 12345,
+            "elapsed_seconds": None,
+            "warnings": [],
+        },
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(reverse_tasks.subprocess, "run", fake_run)
+
+    status = ReverseTaskManager(root=tmp_path, timeout_seconds=1).get(task_id)
+
+    assert status is not None
+    assert status.status == "failed"
+    assert status.error is not None
+    assert status.error["code"] == "REVERSE_TASK_TIMEOUT"
+    assert calls == [["taskkill", "/PID", "12345", "/T", "/F"]]
+    state = json.loads((tmp_path / task_id / "state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "failed"
+    assert state["error"]["code"] == "REVERSE_TASK_TIMEOUT"
+
+
+def test_queued_reverse_task_can_be_cancelled_without_worker_pid(tmp_path: Path) -> None:
+    task_id = "task-queued"
+    now = datetime.now(UTC).isoformat()
+    write_state(
+        tmp_path,
+        task_id,
+        {
+            "schema_version": 1,
+            "task_id": task_id,
+            "status": "queued",
+            "created_at": now,
+            "started_at": None,
+            "finished_at": None,
+            "pid": None,
+            "elapsed_seconds": None,
+            "warnings": [],
+        },
+    )
+
+    status = ReverseTaskManager(root=tmp_path, timeout_seconds=1).cancel(task_id)
+
+    assert status is not None
+    assert status.status == "cancelled"
+
+
+def write_state(root: Path, task_id: str, state: dict[str, object]) -> None:
+    task_dir = root / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")

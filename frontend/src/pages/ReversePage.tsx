@@ -12,8 +12,18 @@ import {
   validateReverseRequest,
 } from "../domain/reverse";
 
+export const REVERSE_TASK_STORAGE_KEY = "drug-gradient-chip.reverse-task-id";
+
 function formatNumber(value: number, digits = 6) {
   return Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
+
+function isRunningStatus(status: string | undefined) {
+  return status === "queued" || status === "running";
+}
+
+function isTerminalStatus(status: string | undefined) {
+  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 function statusText(status: string | undefined) {
@@ -38,26 +48,67 @@ export function ReversePage() {
   const [task, setTask] = useState<ReverseTaskStatusResponse | null>(null);
   const [error, setError] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const pollingRef = useRef<number | null>(null);
 
   const validationErrors = useMemo(() => validateReverseRequest(form), [form]);
-  const isRunning = task?.status === "queued" || task?.status === "running";
+  const isRunning = isRunningStatus(task?.status);
+
+  useEffect(() => {
+    const savedTaskId = window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY);
+    if (!savedTaskId) {
+      return;
+    }
+
+    let active = true;
+    getReverseTask(savedTaskId)
+      .then((savedTask) => {
+        if (!active) {
+          return;
+        }
+        setTask(savedTask);
+        if (isTerminalStatus(savedTask.status)) {
+          window.sessionStorage.removeItem(REVERSE_TASK_STORAGE_KEY);
+        }
+      })
+      .catch((err) => {
+        if (!active) {
+          return;
+        }
+        if (err instanceof ApiClientError && err.kind === "reverse_not_found") {
+          window.sessionStorage.removeItem(REVERSE_TASK_STORAGE_KEY);
+          setTask(null);
+          return;
+        }
+        setError(err instanceof Error ? err.message : "恢复反向任务失败。");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isRunning || !task?.task_id) {
       return;
     }
+
     pollingRef.current = window.setInterval(async () => {
       try {
         const next = await getReverseTask(task.task_id);
         setTask(next);
+        if (isTerminalStatus(next.status)) {
+          window.sessionStorage.removeItem(REVERSE_TASK_STORAGE_KEY);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "轮询反向任务失败。");
       }
     }, 3000);
+
     return () => {
       if (pollingRef.current !== null) {
         window.clearInterval(pollingRef.current);
+        pollingRef.current = null;
       }
     };
   }, [isRunning, task?.task_id]);
@@ -69,6 +120,9 @@ export function ReversePage() {
   }
 
   async function submit() {
+    if (submitting || isRunning) {
+      return;
+    }
     setError("");
     if (validationErrors.length > 0) {
       setError(validationErrors[0]);
@@ -77,6 +131,7 @@ export function ReversePage() {
     setSubmitting(true);
     try {
       const created = await createReverseTask(form);
+      window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, created.task_id);
       setTask({
         task_id: created.task_id,
         status: created.status,
@@ -91,14 +146,19 @@ export function ReversePage() {
   }
 
   async function cancel() {
-    if (!task?.task_id) {
+    if (!task?.task_id || cancelling) {
       return;
     }
     setError("");
+    setCancelling(true);
     try {
-      setTask(await cancelReverseTask(task.task_id));
+      const cancelled = await cancelReverseTask(task.task_id);
+      window.sessionStorage.removeItem(REVERSE_TASK_STORAGE_KEY);
+      setTask(cancelled);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "取消反向设计任务失败。");
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -195,7 +255,7 @@ export function ReversePage() {
             恢复官方示例
           </button>
           {isRunning ? (
-            <button className="secondary" type="button" onClick={cancel}>
+            <button className="secondary" type="button" disabled={cancelling} onClick={cancel}>
               取消任务
             </button>
           ) : null}
