@@ -224,7 +224,7 @@ function BuildFrontend([string]$Root, [switch]$Force) {
 }
 
 function AssertPortableLayout([string]$Root) {
-    foreach ($required in @("runtime\python.exe", "BUILD_INFO.json", "frontend\dist\index.html", "model_assets\forward\manifest.json")) {
+    foreach ($required in @("runtime\python.exe", "BUILD_INFO.json", "frontend\dist\index.html", "model_assets\physics_gnn\manifest.json")) {
         if (-not (Test-Path -LiteralPath (Join-Path $Root $required))) { throw "Portable package is incomplete; missing $required" }
     }
     $index = Join-Path $Root "frontend\dist\index.html"
@@ -296,7 +296,7 @@ function OpenBrowserSafely([string]$Url, [string]$CommandPath) {
 
 try {
     $root = RepoRoot
-    foreach ($required in @("backend\app\main.py", "model_assets\forward\manifest.json")) {
+    foreach ($required in @("backend\app\main.py", "model_assets\physics_gnn\manifest.json")) {
         if (-not (Test-Path -LiteralPath (Join-Path $root $required))) { throw "Missing required path: $required" }
     }
     $resolvedRuntimeMode = ResolveRuntimeMode -Root $root -RequestedMode $RuntimeMode
@@ -307,12 +307,7 @@ try {
     $logsDir = Join-Path $runtimeDir "logs"
     $stateFile = StatePath -Root $root
     New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
-
     AssertPortAvailable -BindAddress $HostAddress -TargetPort $Port -StateFile $stateFile -Root $root
-    Info "Verifying bundled model assets."
-    $verifyArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Quote-ProcessArgument -Value (Join-Path $root "scripts\verify_forward_assets.ps1")))
-    $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
-    if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
     $originalPath = $env:Path
     $hadModelSourceRoot = Test-Path Env:MODEL_SOURCE_ROOT
@@ -339,6 +334,19 @@ try {
         $python = ResolvePython -EnvironmentName $CondaEnvironment -OverridePath $PythonPath
         BuildFrontend -Root $root -Force:$RebuildFrontend
     }
+
+    Info "Verifying bundled model assets."
+    $verifyArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        (Join-Path $root "scripts\verify_forward_assets.ps1"),
+        "-PythonPath",
+        $python
+    )
+    $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"
     $stderrLog = Join-Path $logsDir "backend.stderr.log"

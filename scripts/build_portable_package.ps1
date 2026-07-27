@@ -315,7 +315,7 @@ function Invoke-HttpValidation([string]$Url, [string]$PayloadPath) {
     if ($health.status -ne "ok") { throw "Health endpoint returned an unexpected response." }
     $status = Invoke-RestMethod -Method Get -Uri "$Url/api/v1/model-status" -TimeoutSec 30
     if (-not $status.ready) { throw "Model status is not ready." }
-    foreach ($path in @("/", "/forward", "/reverse")) {
+    foreach ($path in @("/", "/forward")) {
         $response = Invoke-WebRequest -Method Get -Uri "$Url$path" -TimeoutSec 10 -UseBasicParsing
         if ($response.StatusCode -ne 200 -or $response.Content -notmatch "<!doctype html") {
             throw "Frontend route $path did not return the production app."
@@ -588,7 +588,7 @@ try {
     Run-Checked -FilePath "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $root "scripts\verify_forward_assets.ps1")) -WorkingDirectory $root
 
     New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
-    foreach ($dir in @("backend\app", "model_assets\forward", "frontend\dist")) {
+    foreach ($dir in @("backend\app", "model_assets\physics_gnn", "frontend\dist")) {
         Copy-DirectoryContents -Source (Join-Path $root $dir) -Destination (Join-Path $stageRoot $dir)
     }
     New-Item -ItemType Directory -Force -Path (Join-Path $stageRoot "scripts") | Out-Null
@@ -674,7 +674,7 @@ This package contains its own Python runtime and bundled forward model assets.
 End users do not need Conda, Python, Node.js, npm, or the original model repository.
 Portable mode always uses bundled assets and CPU by default.
 The application provides forward prediction only. The transition UI can configure
-4 to 10 chips, but this packaged model runs real prediction only for 6 chips.
+4 to 8 chips, but this packaged model runs real prediction only for 6 chips.
 On first start, the package relocates its runtime for the current directory.
 Do not move a directory after it has been started. To migrate the app, extract
 the original ZIP again at the target location.
