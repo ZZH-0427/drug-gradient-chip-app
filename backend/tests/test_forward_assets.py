@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import DEFAULT_SEEDS, ForwardModelSettings
+from app.core.config import ForwardModelSettings
 from app.main import create_app
 
 
@@ -27,46 +27,20 @@ def test_bundled_manifest_has_expected_runtime_assets(monkeypatch) -> None:
 
     assert settings.asset_source == "bundled"
     assert manifest["schema_version"] == 1
-    assert manifest["ensemble_seeds"] == list(DEFAULT_SEEDS)
-    assert [entry["relative_path"] for entry in manifest["files"]] == [
-        "graph_template/physics_gnn_dataset.pt",
-        "checkpoints/seed_42/best_ablation_checkpoint.pt",
-        "checkpoints/seed_52/best_ablation_checkpoint.pt",
-        "checkpoints/seed_62/best_ablation_checkpoint.pt",
-        "checkpoints/seed_72/best_ablation_checkpoint.pt",
-        "checkpoints/seed_82/best_ablation_checkpoint.pt",
-    ]
-    assert all("\\" not in entry["relative_path"] for entry in manifest["files"])
-    assert all(entry["size_bytes"] > 0 for entry in manifest["files"])
-
-
-def test_bundled_validate_assets_detects_missing_graph_template() -> None:
-    asset_root = fresh_tmp_dir("missing_graph") / "forward"
-    (asset_root / "graph_template").mkdir(parents=True, exist_ok=True)
-    for seed in DEFAULT_SEEDS:
-        checkpoint_dir = asset_root / "checkpoints" / f"seed_{seed}"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        (checkpoint_dir / "best_ablation_checkpoint.pt").write_bytes(b"x")
-
-    settings = ForwardModelSettings(asset_root=asset_root, asset_source="bundled")
-
-    try:
-        settings.validate_assets()
-    except Exception as exc:
-        assert "missing or empty" in str(exc)
-    else:
-        raise AssertionError("validate_assets should fail when graph template is missing")
+    assert manifest["model_family"] == "PhysicsGuidedDualTaskGNN"
+    assert manifest["checkpoint_file"] == "best_concentration_checkpoint.pt"
+    assert manifest["checkpoint_sha256"] == "f6f80287d3b04145daf01c5267f7b304cca88bd2331d380063f49d43b6ead0cc"
+    assert manifest["checkpoint_size_bytes"] > 0
+    assert manifest["supported_forward_chip_counts"] == [6]
+    assert manifest["supported_reverse_chip_counts"] == [6]
+    assert manifest["public_forward_output"] == "concentration_only"
+    assert "\\" not in manifest["checkpoint_file"]
 
 
 def test_bundled_validate_assets_detects_missing_checkpoint() -> None:
-    asset_root = fresh_tmp_dir("missing_checkpoint") / "forward"
-    (asset_root / "graph_template").mkdir(parents=True)
-    (asset_root / "graph_template" / "physics_gnn_dataset.pt").write_bytes(b"x")
+    asset_root = fresh_tmp_dir("missing_checkpoint") / "physics_gnn"
+    asset_root.mkdir(parents=True)
     (asset_root / "manifest.json").write_text("{}", encoding="utf-8")
-    for seed in DEFAULT_SEEDS[:-1]:
-        checkpoint_dir = asset_root / "checkpoints" / f"seed_{seed}"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        (checkpoint_dir / "best_ablation_checkpoint.pt").write_bytes(b"x")
 
     settings = ForwardModelSettings(asset_root=asset_root, asset_source="bundled")
 

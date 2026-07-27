@@ -70,15 +70,10 @@ def test_settings_uses_bundled_assets_when_model_source_root_is_missing(
 
     assert settings.asset_source == "bundled"
     assert settings.model_source_root is None
-    assert settings.dataset_path.name == "physics_gnn_dataset.pt"
-    assert settings.dataset_path.parent.name == "graph_template"
-    assert [settings.checkpoint_path(seed).parent.name for seed in settings.seeds] == [
-        "seed_42",
-        "seed_52",
-        "seed_62",
-        "seed_72",
-        "seed_82",
-    ]
+    assert settings.asset_root.name == "physics_gnn"
+    assert settings.manifest_path.name == "manifest.json"
+    assert settings.seeds == (44,)
+    assert settings.checkpoint_path(44).name == "best_concentration_checkpoint.pt"
 
 
 def test_settings_uses_bundled_assets_when_model_source_root_is_blank(
@@ -99,10 +94,9 @@ def test_settings_uses_external_assets_when_model_source_root_is_set(
     settings = ForwardModelSettings.from_env()
 
     assert settings.asset_source == "external"
-    assert str(settings.dataset_path) == "C:\\model-root\\GNN\\Gnndata\\physics_gnn_dataset.pt"
     assert (
-        str(settings.checkpoint_path(42))
-        == "C:\\model-root\\GNN\\Physics-GNN\\model\\ablation\\data_only\\seed_42\\best_ablation_checkpoint.pt"
+        str(settings.checkpoint_path(44))
+        == "C:\\model-root\\GNN\\Physics-GNN\\model\\experiment_D_balanced_medium_weight\\seed_44\\best_concentration_checkpoint.pt"
     )
 
 

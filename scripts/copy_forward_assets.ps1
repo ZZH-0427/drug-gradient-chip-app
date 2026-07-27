@@ -33,7 +33,7 @@ function Join-Relative {
 
 $repoRoot = Get-RepoRoot
 if ([string]::IsNullOrWhiteSpace($DestinationRoot)) {
-    $DestinationRoot = Join-Path $repoRoot "model_assets\forward"
+    $DestinationRoot = Join-Path $repoRoot "model_assets\physics_gnn"
 }
 
 $sourceRootPath = (Resolve-Path -LiteralPath $SourceRoot).Path
@@ -41,39 +41,9 @@ $destinationRootPath = $ExecutionContext.SessionState.Path.GetUnresolvedProvider
 
 $assets = @(
     @{
-        Role = "graph_template"
-        Source = "GNN/Gnndata/physics_gnn_dataset.pt"
-        Target = "graph_template/physics_gnn_dataset.pt"
-    },
-    @{
         Role = "checkpoint"
-        Seed = 42
-        Source = "GNN/Physics-GNN/model/ablation/data_only/seed_42/best_ablation_checkpoint.pt"
-        Target = "checkpoints/seed_42/best_ablation_checkpoint.pt"
-    },
-    @{
-        Role = "checkpoint"
-        Seed = 52
-        Source = "GNN/Physics-GNN/model/ablation/data_only/seed_52/best_ablation_checkpoint.pt"
-        Target = "checkpoints/seed_52/best_ablation_checkpoint.pt"
-    },
-    @{
-        Role = "checkpoint"
-        Seed = 62
-        Source = "GNN/Physics-GNN/model/ablation/data_only/seed_62/best_ablation_checkpoint.pt"
-        Target = "checkpoints/seed_62/best_ablation_checkpoint.pt"
-    },
-    @{
-        Role = "checkpoint"
-        Seed = 72
-        Source = "GNN/Physics-GNN/model/ablation/data_only/seed_72/best_ablation_checkpoint.pt"
-        Target = "checkpoints/seed_72/best_ablation_checkpoint.pt"
-    },
-    @{
-        Role = "checkpoint"
-        Seed = 82
-        Source = "GNN/Physics-GNN/model/ablation/data_only/seed_82/best_ablation_checkpoint.pt"
-        Target = "checkpoints/seed_82/best_ablation_checkpoint.pt"
+        Source = "GNN/Physics-GNN/model/experiment_D_balanced_medium_weight/seed_44/best_concentration_checkpoint.pt"
+        Target = "best_concentration_checkpoint.pt"
     }
 )
 
@@ -118,27 +88,18 @@ foreach ($asset in $assets) {
     Write-Host "Copied: $($asset.Target)"
 }
 
-$manifestFiles = @()
-foreach ($asset in $assets) {
-    $targetPath = Join-Relative -Root $destinationRootPath -Relative $asset.Target
-    $item = Get-Item -LiteralPath $targetPath
-    $entry = [ordered]@{
-        role = $asset.Role
-    }
-    if ($asset.ContainsKey("Seed")) {
-        $entry.seed = $asset.Seed
-    }
-    $entry.relative_path = $asset.Target
-    $entry.size_bytes = $item.Length
-    $entry.sha256 = Get-Sha256 -Path $targetPath
-    $manifestFiles += [PSCustomObject]$entry
-}
-
+$checkpointPath = Join-Relative -Root $destinationRootPath -Relative "best_concentration_checkpoint.pt"
+$checkpoint = Get-Item -LiteralPath $checkpointPath
 $manifest = [ordered]@{
     schema_version = 1
-    model_name = "forward-ensemble"
-    ensemble_seeds = @(42, 52, 62, 72, 82)
-    files = $manifestFiles
+    model_family = "PhysicsGuidedDualTaskGNN"
+    checkpoint_file = "best_concentration_checkpoint.pt"
+    checkpoint_sha256 = Get-Sha256 -Path $checkpointPath
+    checkpoint_size_bytes = $checkpoint.Length
+    supported_forward_chip_counts = @(6)
+    supported_reverse_chip_counts = @(6)
+    public_forward_output = "concentration_only"
+    internal_outputs = @("concentration", "flow")
 }
 
 $manifestPath = Join-Path $destinationRootPath "manifest.json"

@@ -1,6 +1,8 @@
 {
-  "model_source_root": "D:\\pytorch_geometric-master",
-  "device": "auto",
-  "seeds": [42, 52, 62, 72, 82],
-  "checkpoint_name": "best_ablation_checkpoint.pt"
+  "model_source_root": null,
+  "device": "cpu",
+  "checkpoint_name": "best_concentration_checkpoint.pt",
+  "supported_forward_chip_counts": [6],
+  "supported_reverse_chip_counts": [6],
+  "public_forward_output": "concentration_only"
 }

@@ -1,0 +1,18 @@
+{
+    "schema_version":  1,
+    "model_family":  "PhysicsGuidedDualTaskGNN",
+    "checkpoint_file":  "best_concentration_checkpoint.pt",
+    "checkpoint_sha256":  "f6f80287d3b04145daf01c5267f7b304cca88bd2331d380063f49d43b6ead0cc",
+    "checkpoint_size_bytes":  3025573,
+    "supported_forward_chip_counts":  [
+                                          6
+                                      ],
+    "supported_reverse_chip_counts":  [
+                                          6
+                                      ],
+    "public_forward_output":  "concentration_only",
+    "internal_outputs":  [
+                             "concentration",
+                             "flow"
+                         ]
+}

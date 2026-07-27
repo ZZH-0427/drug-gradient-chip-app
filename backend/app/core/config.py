@@ -9,8 +9,8 @@ from app.core.errors import ModelErrorCode, ModelRuntimeError
 
 
 logger = logging.getLogger(__name__)
-DEFAULT_SEEDS: tuple[int, ...] = (42, 52, 62, 72, 82)
-CHECKPOINT_NAME = "best_ablation_checkpoint.pt"
+DEFAULT_SEEDS: tuple[int, ...] = (44,)
+CHECKPOINT_NAME = "best_concentration_checkpoint.pt"
 VALID_DEVICES = {"auto", "cpu", "cuda"}
 DEFAULT_FRONTEND_ORIGINS: tuple[str, ...] = (
     "http://127.0.0.1:5173",
@@ -47,7 +47,7 @@ class ForwardModelSettings:
             )
 
         return cls(
-            asset_root=project_root() / "model_assets" / "forward",
+            asset_root=project_root() / "model_assets" / "physics_gnn",
             asset_source="bundled",
             model_source_root=None,
             device=device,
@@ -65,10 +65,10 @@ class ForwardModelSettings:
                 / "GNN"
                 / "Physics-GNN"
                 / "model"
-                / "ablation"
-                / "data_only"
+                / "experiment_D_balanced_medium_weight"
+                / "seed_44"
             )
-        return self.asset_root / "checkpoints"
+        return self.asset_root
 
     @property
     def dataset_path(self) -> Path:
@@ -83,7 +83,7 @@ class ForwardModelSettings:
         return self.asset_root / "graph_template" / "physics_gnn_dataset_summary.json"
 
     def checkpoint_path(self, seed: int) -> Path:
-        return self.checkpoint_root / f"seed_{seed}" / self.checkpoint_name
+        return self.checkpoint_root / self.checkpoint_name
 
     def validate_assets(self) -> None:
         if self.asset_source not in {"bundled", "external"}:
@@ -106,7 +106,7 @@ class ForwardModelSettings:
                 {"path": str(self.asset_root)},
             )
 
-        required = [self.dataset_path, *[self.checkpoint_path(seed) for seed in self.seeds]]
+        required = [self.checkpoint_path(44)]
         missing = [path for path in required if not path.exists()]
         empty = [path for path in required if path.exists() and path.stat().st_size <= 0]
 
@@ -120,10 +120,10 @@ class ForwardModelSettings:
                 },
             )
 
-        if len(self.seeds) != 5 or tuple(self.seeds) != DEFAULT_SEEDS:
+        if len(self.seeds) != 1 or tuple(self.seeds) != DEFAULT_SEEDS:
             raise ModelRuntimeError(
                 ModelErrorCode.MODEL_CONFIGURATION_ERROR,
-                "Forward model seeds must be exactly 42,52,62,72,82.",
+                "Forward model seed must be exactly 44.",
             )
 
         if self.asset_source == "bundled" and not self.manifest_path.exists():

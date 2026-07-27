@@ -1,5 +1,6 @@
 param(
-    [string]$AssetRoot
+    [string]$AssetRoot,
+    [string]$PythonPath = "python"
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +29,7 @@ function Join-Relative {
 
 $repoRoot = Get-RepoRoot
 if ([string]::IsNullOrWhiteSpace($AssetRoot)) {
-    $AssetRoot = Join-Path $repoRoot "model_assets\forward"
+    $AssetRoot = Join-Path $repoRoot "model_assets\physics_gnn"
 }
 $assetRootPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($AssetRoot)
 $manifestPath = Join-Path $assetRootPath "manifest.json"
@@ -44,48 +45,47 @@ if ($manifest.schema_version -ne 1) {
     exit 1
 }
 
-$expectedSeeds = @(42, 52, 62, 72, 82)
-$actualSeeds = @($manifest.ensemble_seeds | ForEach-Object { [int]$_ })
-if (($actualSeeds -join ",") -ne ($expectedSeeds -join ",")) {
-    Write-Error "Unexpected ensemble seeds: $($actualSeeds -join ',')"
+$expectedHash = "f6f80287d3b04145daf01c5267f7b304cca88bd2331d380063f49d43b6ead0cc"
+if ([string]$manifest.model_family -ne "PhysicsGuidedDualTaskGNN") {
+    Write-Error "Unexpected model family: $($manifest.model_family)"
+    exit 1
+}
+if ([string]$manifest.public_forward_output -ne "concentration_only") {
+    Write-Error "Unexpected public output: $($manifest.public_forward_output)"
+    exit 1
+}
+$checkpointFile = [string]$manifest.checkpoint_file
+if ($checkpointFile -ne "best_concentration_checkpoint.pt") {
+    Write-Error "Unexpected checkpoint file: $checkpointFile"
+    exit 1
+}
+$path = Join-Path $assetRootPath $checkpointFile
+if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    Write-Error "Asset missing: $checkpointFile"
+    exit 1
+}
+$item = Get-Item -LiteralPath $path
+if ($item.Length -le 0) {
+    Write-Error "Asset is empty: $checkpointFile"
+    exit 1
+}
+if ($item.Length -ne [int64]$manifest.checkpoint_size_bytes) {
+    Write-Error "Size mismatch for ${checkpointFile}: expected $($manifest.checkpoint_size_bytes), got $($item.Length)"
+    exit 1
+}
+$hash = Get-Sha256 -Path $path
+if ($hash -ne $expectedHash -or $hash -ne [string]$manifest.checkpoint_sha256) {
+    Write-Error "SHA-256 mismatch for $checkpointFile"
     exit 1
 }
 
-$checkpointSeeds = @($manifest.files | Where-Object { $_.role -eq "checkpoint" } | ForEach-Object { [int]$_.seed } | Sort-Object)
-if (($checkpointSeeds -join ",") -ne ($expectedSeeds -join ",")) {
-    Write-Error "Unexpected checkpoint seeds: $($checkpointSeeds -join ',')"
+& $PythonPath -c "import torch; ck=torch.load(r'$path', map_location='cpu', weights_only=False); assert ck['architecture']['model_type']=='PhysicsGuidedDualTaskGNN'; assert ck['architecture']['in_channels']==15; assert ck['architecture']['edge_dim']==9; assert ck['architecture']['global_feature_dim']==2; required={'x_mean','x_std','edge_mean','edge_std','u_mean','u_std','chip_physics_mean','chip_physics_std','flow_log_mean','flow_log_std'}; assert required.issubset(ck['normalizers'])"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Checkpoint CPU load or metadata validation failed."
     exit 1
 }
 
-$graphCount = @($manifest.files | Where-Object { $_.role -eq "graph_template" }).Count
-if ($graphCount -ne 1) {
-    Write-Error "Expected exactly one graph template, found $graphCount"
-    exit 1
-}
-
-foreach ($file in $manifest.files) {
-    $path = Join-Relative -Root $assetRootPath -Relative $file.relative_path
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        Write-Error "Asset missing: $($file.relative_path)"
-        exit 1
-    }
-    $item = Get-Item -LiteralPath $path
-    if ($item.Length -le 0) {
-        Write-Error "Asset is empty: $($file.relative_path)"
-        exit 1
-    }
-    if ($item.Length -ne [int64]$file.size_bytes) {
-        Write-Error "Size mismatch for $($file.relative_path): expected $($file.size_bytes), got $($item.Length)"
-        exit 1
-    }
-    $hash = Get-Sha256 -Path $path
-    if ($hash -ne [string]$file.sha256) {
-        Write-Error "SHA-256 mismatch for $($file.relative_path)"
-        exit 1
-    }
-}
-
-Write-Host "graph template: passed"
-Write-Host "checkpoint count: $($checkpointSeeds.Count)"
-Write-Host "seeds: $($actualSeeds -join ',')"
+Write-Host "model family: PhysicsGuidedDualTaskGNN"
+Write-Host "checkpoint count: 1"
+Write-Host "seed: 44"
 Write-Host "hash validation: passed"
