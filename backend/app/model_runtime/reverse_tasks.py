@@ -106,12 +106,18 @@ class ReverseTaskManager:
         ]
         stdout = task_dir / "worker.stdout.log"
         stderr = task_dir / "worker.stderr.log"
-        process = subprocess.Popen(
-            args,
-            cwd=str(project_root()),
-            stdout=stdout.open("w", encoding="utf-8"),
-            stderr=stderr.open("w", encoding="utf-8"),
-        )
+        stdout_handle = stdout.open("w", encoding="utf-8")
+        stderr_handle = stderr.open("w", encoding="utf-8")
+        try:
+            process = subprocess.Popen(
+                args,
+                cwd=str(project_root()),
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+            )
+        finally:
+            stdout_handle.close()
+            stderr_handle.close()
         state["status"] = "running"
         state["started_at"] = utc_now()
         state["pid"] = process.pid
