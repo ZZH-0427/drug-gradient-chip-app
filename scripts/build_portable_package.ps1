@@ -2,6 +2,7 @@
 param(
     [string]$Version = "",
     [string]$SourceCommit = "",
+    [string]$ProductFeatureBaseline = "",
     [string]$OutputRoot = "",
     [string]$CondaEnvironment = "drug-chip",
     [string]$RuntimeCondaEnvironment = "",
@@ -577,6 +578,7 @@ try {
     $conda = Get-CondaCommand
     $commit = Get-CommandOutput -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $root
     $sourceCommitForPackage = if ($SourceCommit.Trim()) { $SourceCommit.Trim() } else { $commit }
+    $featureBaselineForPackage = $ProductFeatureBaseline.Trim()
     $branch = Get-CommandOutput -FilePath "git" -Arguments @("branch", "--show-current") -WorkingDirectory $root
     $coreVersions = Get-CoreVersions -Python $appPython -Root $root
     $packVersion = Get-CommandOutput -FilePath $conda -Arguments @("list", "-n", $BuildToolEnvironment, "conda-pack") -WorkingDirectory $root
@@ -649,6 +651,7 @@ with tarfile.open(archive, "r:gz") as handle:
         production_release = $false
         git_commit = $sourceCommitForPackage
         source_commit = $sourceCommitForPackage
+        product_feature_baseline = $featureBaselineForPackage
         build_commit = $sourceCommitForPackage
         builder_commit = $commit
         source_branch = $branch
@@ -689,6 +692,7 @@ Production release: no
 Notice: This is an internal test build and is not a production release.
 Source branch: $branch
 Source commit: $sourceCommitForPackage
+Product feature baseline: $featureBaselineForPackage
 Builder commit: $commit
 Platform: Windows x64
 Runtime: CPU-only
