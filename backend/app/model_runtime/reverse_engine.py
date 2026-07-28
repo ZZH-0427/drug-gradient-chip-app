@@ -124,8 +124,6 @@ try:
 except ImportError:
     TransformerConv = None
     global_mean_pool = None
-
-
 # =============================================================================
 # 0. 固定结构与默认参数
 # =============================================================================
@@ -167,6 +165,7 @@ SCRIPT_FILE = Path(__file__).resolve()
 INVERSE_PREDICTION_DIR = SCRIPT_FILE.parent
 FORWARD_AND_INVERSE_DIR = INVERSE_PREDICTION_DIR.parent
 PROJECT_ROOT = FORWARD_AND_INVERSE_DIR.parent
+APP_ROOT = Path(__file__).resolve().parents[3]
 
 DEFAULT_TARGET_FILE = (
     INVERSE_PREDICTION_DIR
@@ -186,6 +185,14 @@ DEFAULT_FORWARD_PREDICTION_DIR = (
 # =============================================================================
 # 1. 工具
 # =============================================================================
+
+DEFAULT_BUNDLED_CHECKPOINT = (
+    APP_ROOT
+    / "model_assets"
+    / "physics_gnn"
+    / "best_concentration_checkpoint.pt"
+)
+
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -1829,11 +1836,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path(
-            r"C:\Users\27242\Desktop\pytorch_geometric-master"
-            r"\GNN\Physics-GNN\model\experiment_D_balanced_medium_weight"
-            r"\seed_44\best_concentration_checkpoint.pt"
-        ),
+        default=DEFAULT_BUNDLED_CHECKPOINT,
         help=(
             "默认使用 Experiment D（seed 44）的 "
             "best_concentration_checkpoint.pt；"
