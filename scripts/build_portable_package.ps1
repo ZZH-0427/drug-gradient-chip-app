@@ -774,7 +774,7 @@ Do not move a directory after it has been started. To migrate the app, extract t
             $zipPath = Join-Path $output "$packageName-$timestamp.zip"
             Warn "Requested ZIP already exists; writing timestamped test package instead: $(Split-Path -Leaf $zipPath)"
         }
-        if (Test-Path -LiteralPath $zipPath -or Test-Path -LiteralPath "$zipPath.sha256") {
+        if ((Test-Path -LiteralPath $zipPath) -or (Test-Path -LiteralPath "$zipPath.sha256")) {
             throw "Refusing to overwrite existing portable package output: $zipPath"
         }
         New-ZipArchive -Python $buildPython -SourceRoot $stageRoot -ZipPath $zipPath -BuildRoot $buildRoot -ReportPath $sizeReportPath
