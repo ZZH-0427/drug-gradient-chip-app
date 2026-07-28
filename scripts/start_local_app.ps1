@@ -370,7 +370,8 @@ try {
         exit $LASTEXITCODE
     }
     Info "Starting app at $url"
-    $process = Start-Process -FilePath $python -ArgumentList $args -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+    $processArgs = @($args | ForEach-Object { Quote-ProcessArgument -Value $_ })
+    $process = Start-Process -FilePath $python -ArgumentList $processArgs -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
     $processInfo = $null
     $processInfoDeadline = (Get-Date).AddSeconds(10)
     do {
