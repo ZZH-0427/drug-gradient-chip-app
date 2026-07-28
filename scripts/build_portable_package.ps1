@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Version = "",
+    [string]$SourceCommit = "",
     [string]$OutputRoot = "",
     [string]$CondaEnvironment = "drug-chip",
     [string]$RuntimeCondaEnvironment = "",
@@ -575,6 +576,7 @@ try {
     $buildPython = Get-CondaPython -Name $BuildToolEnvironment
     $conda = Get-CondaCommand
     $commit = Get-CommandOutput -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $root
+    $sourceCommitForPackage = if ($SourceCommit.Trim()) { $SourceCommit.Trim() } else { $commit }
     $branch = Get-CommandOutput -FilePath "git" -Arguments @("branch", "--show-current") -WorkingDirectory $root
     $coreVersions = Get-CoreVersions -Python $appPython -Root $root
     $packVersion = Get-CommandOutput -FilePath $conda -Arguments @("list", "-n", $BuildToolEnvironment, "conda-pack") -WorkingDirectory $root
@@ -645,8 +647,10 @@ with tarfile.open(archive, "r:gz") as handle:
         release_channel = "internal-test"
         release_stage = "Release Candidate"
         production_release = $false
-        git_commit = $commit
-        build_commit = $commit
+        git_commit = $sourceCommitForPackage
+        source_commit = $sourceCommitForPackage
+        build_commit = $sourceCommitForPackage
+        builder_commit = $commit
         source_branch = $branch
         build_time_utc = (Get-Date).ToUniversalTime().ToString("o")
         platform = "Windows-x64"
@@ -684,7 +688,8 @@ Release stage: Release Candidate
 Production release: no
 Notice: This is an internal test build and is not a production release.
 Source branch: $branch
-Source commit: $commit
+Source commit: $sourceCommitForPackage
+Builder commit: $commit
 Platform: Windows x64
 Runtime: CPU-only
 Model: PhysicsGuidedDualTaskGNN
@@ -723,7 +728,7 @@ This is an internal test build and is not a production release.
 反向结果仅经过 Physics-GNN 代理模型内部筛选，最终结构仍需 Fluent/CFD 独立验证。
 默认地址为 http://127.0.0.1:8000。
 无需安装 Python、Conda、Node.js 或 npm，无需联网。
-测试反馈请记录版本 $appVersion 和 commit $commit。
+测试反馈请记录版本 $appVersion 和 commit $sourceCommitForPackage。
 
 使用方法
 --------
