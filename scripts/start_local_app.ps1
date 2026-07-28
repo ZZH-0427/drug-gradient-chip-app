@@ -345,7 +345,8 @@ try {
         "-PythonPath",
         $python
     )
-    $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    $verifyProcessArgs = @($verifyArgs | ForEach-Object { Quote-ProcessArgument -Value $_ })
+    $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyProcessArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
     if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"
