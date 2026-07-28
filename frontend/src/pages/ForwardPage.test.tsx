@@ -2,8 +2,12 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cloneExampleForm } from "../domain/forward";
+import { validateForwardForm } from "../domain/validation";
+import type { I18nContextValue } from "../i18n/context";
 import { LanguageSwitcher } from "../i18n/LanguageSwitcher";
 import { LOCALE_STORAGE_KEY } from "../i18n/locale";
+import { translations } from "../i18n/translations";
 import { renderWithI18n } from "../test/renderWithI18n";
 import { ForwardPage } from "./ForwardPage";
 
@@ -93,6 +97,34 @@ describe("Forward localized chip-count form", () => {
     expect(screen.getByText("Right Bend-to-Straight Distance mm")).toBeInTheDocument();
   });
 
+  it("keeps six rows and adds the unified default row when increasing from 6 to 7", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    mockFetch(jsonResponse(statusReady));
+    renderForwardPage();
+
+    await waitFor(() => expect(chipCountSelect()).toHaveValue("6"));
+    await user.clear(leftWidthInput(1));
+    await user.type(leftWidthInput(1), "0.125");
+    await user.clear(leftDistanceInput(1));
+    await user.type(leftDistanceInput(1), "42");
+    await user.selectOptions(chipCountSelect(), "7");
+
+    expect(positionCells()).toHaveLength(7);
+    expect(leftWidthInput(1)).toHaveValue(0.125);
+    expect(leftDistanceInput(1)).toHaveValue(42);
+    expect(screen.getByText("P13/P14")).toBeInTheDocument();
+    expect(chipTypeSelect(7)).toHaveValue("5to4");
+    expect(leftWidthInput(7)).toHaveValue(0.261);
+    expect(rightWidthInput(7)).toHaveValue(0.138);
+    expect(leftDistanceInput(7)).toHaveValue(31);
+    expect(rightDistanceInput(7)).toHaveValue(25);
+    expectWidthAttributes(leftWidthInput(7));
+    expectWidthAttributes(rightWidthInput(7));
+    expectDistanceAttributes(leftDistanceInput(7));
+    expectDistanceAttributes(rightDistanceInput(7));
+  });
+
   it("selecting 4 renders four positions and P1 through P8 only", async () => {
     const user = userEvent.setup();
     mockFetch(jsonResponse(statusReady));
@@ -104,6 +136,24 @@ describe("Forward localized chip-count form", () => {
     expect(screen.getByText("P7/P8")).toBeInTheDocument();
     expect(screen.queryByText("位置 5")).not.toBeInTheDocument();
     expect(screen.queryByText("P9/P10")).not.toBeInTheDocument();
+  });
+
+  it("selecting 8 renders all positions, P1 through P16, and numeric input attributes", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    mockFetch(jsonResponse(statusReady));
+    renderForwardPage();
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Number of Chips" }), "8");
+
+    expect(positionCells()).toHaveLength(8);
+    for (let position = 1; position <= 8; position += 1) {
+      expect(screen.getByText(`P${position * 2 - 1}/P${position * 2}`)).toBeInTheDocument();
+      expectWidthAttributes(leftWidthInput(position));
+      expectWidthAttributes(rightWidthInput(position));
+      expectDistanceAttributes(leftDistanceInput(position));
+      expectDistanceAttributes(rightDistanceInput(position));
+    }
   });
 
   it("keeps existing rows, creates independent defaults, and regenerates removed tail rows", async () => {
@@ -190,6 +240,54 @@ describe("Forward localized workflow interactions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["left", "0.039", "Left width must be between 0.04 and 0.31 mm."],
+    ["left", "0.039999", "Left width must be between 0.04 and 0.31 mm."],
+    ["left", "-0.04", "Left width must be between 0.04 and 0.31 mm."],
+    ["left", "0.3101", "Left width must be between 0.04 and 0.31 mm."],
+    ["left", "0.311", "Left width must be between 0.04 and 0.31 mm."],
+    ["left", "", "Left width must be between 0.04 and 0.31 mm."],
+    ["right", "0.039", "Right width must be between 0.04 and 0.31 mm."],
+    ["right", "0.039999", "Right width must be between 0.04 and 0.31 mm."],
+    ["right", "-0.04", "Right width must be between 0.04 and 0.31 mm."],
+    ["right", "0.3101", "Right width must be between 0.04 and 0.31 mm."],
+    ["right", "0.311", "Right width must be between 0.04 and 0.31 mm."],
+    ["right", "", "Right width must be between 0.04 and 0.31 mm."],
+  ])("keeps invalid %s width %s out of confirmation and forward API", async (side, value, message) => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    const fetchMock = mockFetch(jsonResponse(statusReady));
+    renderForwardPage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const input = side === "left" ? leftWidthInput(1) : rightWidthInput(1);
+    await user.clear(input);
+    if (value) {
+      await user.type(input, value);
+    }
+    await user.click(confirmButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(input).toHaveDisplayValue(value);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["NaN", "left_width_mm", "Left width must be between 0.04 and 0.31 mm."],
+    ["Infinity", "left_width_mm", "Left width must be between 0.04 and 0.31 mm."],
+    ["NaN", "right_width_mm", "Right width must be between 0.04 and 0.31 mm."],
+    ["Infinity", "right_width_mm", "Right width must be between 0.04 and 0.31 mm."],
+  ])("rejects special %s semantic input for %s at validation layer", (value, field, expected) => {
+    const form = cloneExampleForm();
+    form.chips[0] = { ...form.chips[0], [field]: value };
+
+    const result = validateForwardForm(form, translateEn);
+
+    expect(result.payload).toBeUndefined();
+    expect(result.errors).toContain(expected);
+  });
+
   it("preserves an invalid width value and allows confirmation after correction", async () => {
     const user = userEvent.setup();
     const fetchMock = mockFetch(jsonResponse(statusReady));
@@ -208,6 +306,50 @@ describe("Forward localized workflow interactions", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns from confirmation to edit without losing modified values or current language", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    const fetchMock = mockFetch(jsonResponse(statusReady));
+    renderForwardPage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await user.clear(leftWidthInput(1));
+    await user.type(leftWidthInput(1), "0.125");
+    await user.clear(leftDistanceInput(1));
+    await user.type(leftDistanceInput(1), "42");
+    await user.click(confirmButton());
+    await user.click(screen.getByRole("button", { name: "Back to Edit" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Forward Prediction" })).toBeInTheDocument();
+    expect(leftWidthInput(1)).toHaveValue(0.125);
+    expect(leftDistanceInput(1)).toHaveValue(42);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns from results to edit without losing modified values, language, or issuing another forward request", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    const fetchMock = mockFetch(jsonResponse(statusReady), jsonResponse(successPayload()));
+    renderForwardPage();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await user.clear(leftWidthInput(1));
+    await user.type(leftWidthInput(1), "0.125");
+    await user.click(confirmButton());
+    await user.click(runButton());
+    await screen.findByText("Prediction Results");
+    await user.click(screen.getByRole("button", { name: "Back to Edit" }));
+
+    expect(leftWidthInput(1)).toHaveValue(0.125);
+    expect(screen.getByRole("heading", { name: "Forward Prediction" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await user.click(screen.getByRole("button", { name: "中文" }));
+    expect(leftWidthInput(1)).toHaveValue(0.125);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("keeps inlet choices mutually exclusive and sends the selected relation", async () => {
@@ -398,3 +540,17 @@ function mockFetch(...responses: Array<Response | Promise<Response>>) {
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
+
+const translateEn: I18nContextValue["t"] = (key, values) => {
+  const value = key.split(".").reduce<unknown>((current, part) => {
+    if (current && typeof current === "object" && part in current) {
+      return (current as Record<string, unknown>)[part];
+    }
+    return undefined;
+  }, translations.en);
+  const template = typeof value === "string" ? value : key;
+  return Object.entries(values ?? {}).reduce(
+    (message, [name, replacement]) => message.replace(`{${name}}`, String(replacement)),
+    template,
+  );
+};

@@ -67,6 +67,33 @@ describe("Reverse localized form", () => {
     expectPostedPayload(fetchMock, { inlet1: 1, inlet2: 0 });
   });
 
+  it.each(["zh-CN", "en"])("submits default Inlet2 as inlet1=0 and inlet2=1 in %s", async (locale) => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
+    renderReversePage();
+
+    expect(screen.getByRole("radio", { name: "Inlet2" })).toBeChecked();
+    await user.click(startReverseButton());
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expectPostedPayload(fetchMock, { inlet1: 0, inlet2: 1 });
+  });
+
+  it("keeps Inlet2 selected across language switching before submitting the same payload", async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
+    renderReversePage();
+
+    expect(screen.getByRole("radio", { name: "Inlet2" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "EN" }));
+    expect(screen.getByRole("radio", { name: "Inlet2" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Start Reverse Prediction" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expectPostedPayload(fetchMock, { inlet1: 0, inlet2: 1 });
+  });
+
   it("restores the official example and resets to Inlet2", async () => {
     const user = userEvent.setup();
     renderReversePage();
@@ -89,6 +116,24 @@ describe("Reverse localized form", () => {
     expect(screen.getAllByRole("spinbutton")).toHaveLength(6);
     expect(container.querySelectorAll(".reverse-target-input")).toHaveLength(6);
     expect(container.querySelector(".reverse-target-table")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["zh-CN", /\[0\.10, 0\.95\]/],
+    ["en", /Some target concentrations fall outside the recommended dense training range \[0\.10, 0\.95\]/],
+  ])("allows the official 0.08 target value to submit while showing the %s warning", async (locale, warning) => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
+    renderReversePage();
+
+    expect(screen.getByRole("spinbutton", { name: /y1/ })).toHaveValue(0.08);
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(startReverseButton()).toBeEnabled();
+    await user.click(startReverseButton());
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expectPostedPayload(fetchMock, { inlet1: 0, inlet2: 1 });
   });
 });
 
@@ -260,6 +305,32 @@ describe("Reverse localized results", () => {
     expect(screen.getAllByText("0.101000")).toHaveLength(6);
     expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBeNull();
   });
+
+  it("does not offer cancellation after completion and allows starting a new task", async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
+    const fetchMock = mockFetch(
+      jsonResponse(completedTask()),
+      jsonResponse({ task_id: "task-2", status: "running" }, 202),
+    );
+    const user = userEvent.setup();
+
+    renderReversePage();
+
+    expect(await screen.findByText("Completed, Elapsed 1.00 seconds")).toBeInTheDocument();
+    expect(cancelTaskButton()).not.toBeInTheDocument();
+    await user.click(screen.getByRole("heading", { name: "Task Status" }));
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === "DELETE")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "中文" }));
+    expect(cancelTaskButton()).not.toBeInTheDocument();
+    await user.click(startReverseButton());
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === "DELETE")).toBe(false);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/api/v1/reverse-tasks");
+    expect(window.sessionStorage.getItem(REVERSE_TASK_STORAGE_KEY)).toBe("task-2");
+  });
 });
 
 describe("Reverse task refresh recovery", () => {
@@ -366,6 +437,14 @@ function expectPostedPayload(
   const payload = JSON.parse(request?.body as string);
   expect(payload.inlet1).toBe(expected.inlet1);
   expect(payload.inlet2).toBe(expected.inlet2);
+}
+
+function startReverseButton() {
+  return screen.getByRole("button", { name: /Start Reverse Prediction|开始反向预测/ });
+}
+
+function cancelTaskButton() {
+  return screen.queryByRole("button", { name: /Cancel Task|取消任务/ });
 }
 
 function runningTask(status = "running") {
