@@ -23,6 +23,8 @@ const LEGACY_TARGET_RANGE_WARNING =
 const LEGACY_INTERNAL_SCREENING_NOTE =
   "Internal screening only means the structure was checked by the same Physics-GNN surrogate model.";
 const LEGACY_CFD_NOTE = "Final designs should still be independently verified with Fluent/CFD.";
+const DENSE_TARGET_MIN = 0.1;
+const DENSE_TARGET_MAX = 0.95;
 
 type InletMode = "inlet1" | "inlet2";
 type ReverseTaskStatus = NonNullable<ReverseTaskStatusResponse["status"]>;
@@ -92,6 +94,9 @@ export function ReversePage() {
   const pollingRef = useRef<number | null>(null);
 
   const validationErrors = useMemo(() => validateReverseRequest(form, t), [form, t]);
+  const hasTargetRangeWarning = form.target_concentrations.some(
+    (value) => Number.isFinite(value) && (value < DENSE_TARGET_MIN || value > DENSE_TARGET_MAX),
+  );
   const isRunning = isRunningStatus(task?.status);
   const inletMode = getInletMode(form);
 
@@ -246,6 +251,9 @@ export function ReversePage() {
       ) : null}
       {validationErrors.length > 0 ? (
         <div className="message inline-warning">{validationErrors[0]}</div>
+      ) : null}
+      {!task && hasTargetRangeWarning ? (
+        <div className="message inline-warning">{t("reverse.warningTargetRange")}</div>
       ) : null}
 
       <div className="tool-panel">
