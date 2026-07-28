@@ -728,7 +728,7 @@ This is an internal test build and is not a production release.
 反向结果仅经过 Physics-GNN 代理模型内部筛选，最终结构仍需 Fluent/CFD 独立验证。
 默认地址为 http://127.0.0.1:8000。
 无需安装 Python、Conda、Node.js 或 npm，无需联网。
-测试反馈请记录版本 $appVersion 和 commit $sourceCommitForPackage。
+测试反馈请记录版本 $appVersion 和 commit ${sourceCommitForPackage}。
 
 使用方法
 --------
