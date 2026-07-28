@@ -244,12 +244,12 @@ function Write-ValidationPayload([string]$Path) {
         inlet1 = 1.0
         inlet2 = 0.0
         chips = @(
-            @{ position = 1; chip_type = "5to4"; left_width_mm = 1.1; right_width_mm = 1.2; left_bend_straight_distance_mm = 11.0; right_bend_straight_distance_mm = 21.0 },
-            @{ position = 2; chip_type = "4to2"; left_width_mm = 2.1; right_width_mm = 2.2; left_bend_straight_distance_mm = 12.0; right_bend_straight_distance_mm = 22.0 },
-            @{ position = 3; chip_type = "1to6"; left_width_mm = 3.1; right_width_mm = 3.2; left_bend_straight_distance_mm = 13.0; right_bend_straight_distance_mm = 23.0 },
-            @{ position = 4; chip_type = "2to4"; left_width_mm = 4.1; right_width_mm = 4.2; left_bend_straight_distance_mm = 14.0; right_bend_straight_distance_mm = 24.0 },
-            @{ position = 5; chip_type = "6to3"; left_width_mm = 5.1; right_width_mm = 5.2; left_bend_straight_distance_mm = 15.0; right_bend_straight_distance_mm = 25.0 },
-            @{ position = 6; chip_type = "3to1"; left_width_mm = 6.1; right_width_mm = 6.2; left_bend_straight_distance_mm = 16.0; right_bend_straight_distance_mm = 26.0 }
+            @{ position = 1; chip_type = "5to4"; left_width_mm = 0.261; right_width_mm = 0.138; left_bend_straight_distance_mm = 31.0; right_bend_straight_distance_mm = 25.0 },
+            @{ position = 2; chip_type = "4to2"; left_width_mm = 0.089; right_width_mm = 0.04; left_bend_straight_distance_mm = 25.0; right_bend_straight_distance_mm = 13.0 },
+            @{ position = 3; chip_type = "1to6"; left_width_mm = 0.212; right_width_mm = 0.236; left_bend_straight_distance_mm = 7.0; right_bend_straight_distance_mm = 31.0 },
+            @{ position = 4; chip_type = "2to4"; left_width_mm = 0.31; right_width_mm = 0.163; left_bend_straight_distance_mm = 13.0; right_bend_straight_distance_mm = 25.0 },
+            @{ position = 5; chip_type = "6to3"; left_width_mm = 0.187; right_width_mm = 0.285; left_bend_straight_distance_mm = 37.0; right_bend_straight_distance_mm = 19.0 },
+            @{ position = 6; chip_type = "3to1"; left_width_mm = 0.05; right_width_mm = 0.114; left_bend_straight_distance_mm = 13.0; right_bend_straight_distance_mm = 7.0 }
         )
     }
     Write-JsonFile -Path $Path -Value $payload
@@ -315,7 +315,7 @@ function Invoke-HttpValidation([string]$Url, [string]$PayloadPath) {
     if ($health.status -ne "ok") { throw "Health endpoint returned an unexpected response." }
     $status = Invoke-RestMethod -Method Get -Uri "$Url/api/v1/model-status" -TimeoutSec 30
     if (-not $status.ready) { throw "Model status is not ready." }
-    foreach ($path in @("/", "/forward")) {
+    foreach ($path in @("/", "/forward", "/reverse")) {
         $response = Invoke-WebRequest -Method Get -Uri "$Url$path" -TimeoutSec 10 -UseBasicParsing
         if ($response.StatusCode -ne 200 -or $response.Content -notmatch "<!doctype html") {
             throw "Frontend route $path did not return the production app."
@@ -578,6 +578,11 @@ try {
     $branch = Get-CommandOutput -FilePath "git" -Arguments @("branch", "--show-current") -WorkingDirectory $root
     $coreVersions = Get-CoreVersions -Python $appPython -Root $root
     $packVersion = Get-CommandOutput -FilePath $conda -Arguments @("list", "-n", $BuildToolEnvironment, "conda-pack") -WorkingDirectory $root
+    $assetManifest = Get-Content -LiteralPath (Join-Path $root "model_assets\physics_gnn\manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    $checkpointSha = [string]$assetManifest.checkpoint_sha256
+    if ($DistributionFlavor -eq "CPU" -and -not [string]::IsNullOrWhiteSpace([string]$coreVersions.torch_cuda)) {
+        throw "CPU portable package requires a CPU-only torch build; found torch.version.cuda=$($coreVersions.torch_cuda)."
+    }
 
     if (-not $SkipTests) {
         Run-Checked -FilePath $appPython -Arguments @("-m", "pip", "check") -WorkingDirectory $root
@@ -585,7 +590,7 @@ try {
     }
     Invoke-FrontendBuild -Root $root -RunChecks:(-not $SkipTests)
 
-    Run-Checked -FilePath "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $root "scripts\verify_forward_assets.ps1")) -WorkingDirectory $root
+    Run-Checked -FilePath "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $root "scripts\verify_forward_assets.ps1"), "-PythonPath", $appPython) -WorkingDirectory $root
 
     New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
     foreach ($dir in @("backend\app", "model_assets\physics_gnn", "frontend\dist")) {
@@ -595,9 +600,10 @@ try {
     foreach ($script in @("local_app_lifecycle.ps1", "start_local_app.ps1", "status_local_app.ps1", "stop_local_app.ps1", "verify_forward_assets.ps1")) {
         Copy-Item -LiteralPath (Join-Path $root "scripts\$script") -Destination (Join-Path $stageRoot "scripts\$script") -Force
     }
-    foreach ($file in @("start_app.cmd", "status_app.cmd", "stop_app.cmd", "VERSION")) {
+    foreach ($file in @("start_app.cmd", "status_app.cmd", "stop_app.cmd")) {
         Copy-Item -LiteralPath (Join-Path $root $file) -Destination (Join-Path $stageRoot $file) -Force
     }
+    Write-Text -Path (Join-Path $stageRoot "VERSION") -Text $appVersion
     if (Test-Path -LiteralPath (Join-Path $root "backend\__init__.py")) {
         Copy-Item -LiteralPath (Join-Path $root "backend\__init__.py") -Destination (Join-Path $stageRoot "backend\__init__.py") -Force
     } else {
@@ -633,7 +639,12 @@ with tarfile.open(archive, "r:gz") as handle:
     $buildInfo = [ordered]@{
         schema_version = 1
         app_name = "drug-gradient-chip"
+        product = "Drug Concentration Gradient Chip Prediction System"
+        chinese_name = "药物浓度梯度芯片预测系统"
         version = $appVersion
+        release_channel = "internal-test"
+        release_stage = "Release Candidate"
+        production_release = $false
         git_commit = $commit
         build_commit = $commit
         source_branch = $branch
@@ -653,34 +664,96 @@ with tarfile.open(archive, "r:gz") as handle:
         torch_geometric_version = $coreVersions."torch-geometric"
         fastapi_version = $coreVersions.fastapi
         uvicorn_version = $coreVersions.uvicorn
+        model = "PhysicsGuidedDualTaskGNN"
+        model_seed = 44
+        checkpoint_file = "best_concentration_checkpoint.pt"
+        checkpoint_sha256 = $checkpointSha
+        forward_supported_chip_counts = @(6)
+        forward_configurable_chip_counts = @(4, 5, 6, 7, 8)
+        reverse_supported_chip_counts = @(6)
+        interface_languages = @("zh-CN", "en")
+        internal_test_notice = "This is an internal test build and is not a production release."
     }
     Write-JsonFile -Path (Join-Path $stageRoot "BUILD_INFO.json") -Value $buildInfo
-    Write-Text -Path (Join-Path $stageRoot "README.txt") -Text @"
-Drug Gradient Chip - Windows Portable Package
-
+    Write-Text -Path (Join-Path $stageRoot "TEST_BUILD_INFO.txt") -Text @"
+Product: Drug Concentration Gradient Chip Prediction System
+Chinese name: 药物浓度梯度芯片预测系统
 Version: $appVersion
-Build commit: $commit
+Release channel: internal-test
+Release stage: Release Candidate
+Production release: no
+Notice: This is an internal test build and is not a production release.
+Source branch: $branch
+Source commit: $commit
+Platform: Windows x64
+Runtime: CPU-only
+Model: PhysicsGuidedDualTaskGNN
+Model seed: 44
+Checkpoint file: best_concentration_checkpoint.pt
+Checkpoint SHA256: $checkpointSha
+Build timestamp UTC: $($buildInfo.build_time_utc)
+Builder script: scripts/build_portable_package.ps1
+Forward supported chip counts: [6]
+Forward configurable chip counts: [4,5,6,7,8]
+Reverse supported chip counts: [6]
+Interface languages: [zh-CN,en]
+Torch version: $($coreVersions.torch)
+Torch CUDA build: $($coreVersions.torch_cuda)
+Torch Geometric version: $($coreVersions."torch-geometric")
+"@
+    Write-Text -Path (Join-Path $stageRoot "README.txt") -Text @"
+Drug Concentration Gradient Chip Prediction System
+Version: $appVersion
+Release channel: internal-test / Release Candidate
 
-Run:
-  start_app.cmd
+This is an internal test build and is not a production release.
 
-Status:
-  status_app.cmd
+中文说明
+--------
+此版本为内部测试版，不是正式发布版本。
+默认界面语言为中文，可在右上角切换到 English/EN。
+语言偏好保存在本地浏览器中，刷新后会保持。
+正向预测 / Forward Prediction 当前真实模型只支持 6 个芯片。
+4、5、7、8 个芯片只允许配置表单，不能执行真实预测。
+正向宽度范围为 0.04 到 0.31 mm，宽度步长为 0.001 mm。
+距离输入步长为 1 mm。
+正向预测公共结果只显示浓度，不显示 flow、seed、mean 或 std。
+反向预测 / Reverse Prediction 固定支持 6 个芯片。
+反向预测通常需要几十秒，同一时间最多运行一个反向任务。
+反向结果仅经过 Physics-GNN 代理模型内部筛选，最终结构仍需 Fluent/CFD 独立验证。
+默认地址为 http://127.0.0.1:8000。
+无需安装 Python、Conda、Node.js 或 npm，无需联网。
+测试反馈请记录版本 $appVersion 和 commit $commit。
 
-Stop:
-  stop_app.cmd
+使用方法
+--------
+启动: start_app.cmd
+状态: status_app.cmd
+停止: stop_app.cmd
 
-This package contains its own Python runtime and bundled forward model assets.
-End users do not need Conda, Python, Node.js, npm, or the original model repository.
-Portable mode always uses bundled assets and CPU by default.
-The application provides forward prediction only. The transition UI can configure
-4 to 8 chips, but this packaged model runs real prediction only for 6 chips.
+English
+-------
+This is an internal test build and is not a production release.
+The default interface language is Chinese. Use the top-right language switcher to choose EN.
+The language preference is stored in the local browser and survives refresh.
+Forward Prediction currently supports real prediction for six chips only.
+Chip counts 4, 5, 7, and 8 are configurable in the form but cannot run real prediction yet.
+Forward width range is 0.04 to 0.31 mm with a 0.001 mm step.
+Distance inputs use a 1 mm step.
+Forward public output contains concentration only; flow, seed, mean, and std are not shown.
+Reverse Prediction supports fixed-six-chip asynchronous tasks.
+Reverse Prediction usually takes tens of seconds, and only one reverse task can run at a time.
+Reverse results are screened by the Physics-GNN surrogate model only; final structures still require independent Fluent/CFD verification.
+Default URL: http://127.0.0.1:8000.
+Python, Conda, Node.js, and npm are not required. Internet access is not required.
+
+Portable runtime note
+---------------------
 On first start, the package relocates its runtime for the current directory.
-Do not move a directory after it has been started. To migrate the app, extract
-the original ZIP again at the target location.
+Do not move a directory after it has been started. To migrate the app, extract the original ZIP again at the target location.
 "@
 
-    Run-Checked -FilePath "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $stageRoot "scripts\verify_forward_assets.ps1")) -WorkingDirectory $stageRoot
+    Run-Checked -FilePath "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $stageRoot "scripts\verify_forward_assets.ps1"), "-PythonPath", $appPython) -WorkingDirectory $stageRoot
     Remove-ReleaseJunk -PackageRoot $stageRoot
     Assert-ReleaseTreeClean -PackageRoot $stageRoot
     Assert-NoDevPaths -PackageRoot $stageRoot -ForbiddenFragments @($root, (Get-CondaEnvPath -Name $runtimeEnvironment), "D:\pytorch_geometric-master")
@@ -691,8 +764,14 @@ the original ZIP again at the target location.
 
     if (-not $NoArchive) {
         $zipPath = Join-Path $output "$packageName.zip"
-        if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-        if (Test-Path -LiteralPath "$zipPath.sha256") { Remove-Item -LiteralPath "$zipPath.sha256" -Force }
+        if (Test-Path -LiteralPath $zipPath) {
+            $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+            $zipPath = Join-Path $output "$packageName-$timestamp.zip"
+            Warn "Requested ZIP already exists; writing timestamped test package instead: $(Split-Path -Leaf $zipPath)"
+        }
+        if (Test-Path -LiteralPath $zipPath -or Test-Path -LiteralPath "$zipPath.sha256") {
+            throw "Refusing to overwrite existing portable package output: $zipPath"
+        }
         New-ZipArchive -Python $buildPython -SourceRoot $stageRoot -ZipPath $zipPath -BuildRoot $buildRoot -ReportPath $sizeReportPath
         $sha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
         Write-Text -Path "$zipPath.sha256" -Text "$sha  $(Split-Path -Leaf $zipPath)"
