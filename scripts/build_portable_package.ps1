@@ -107,8 +107,8 @@ function Assert-WindowsX64 {
 
 function Assert-FreeSpace([string]$Path, [int64]$RequiredBytes) {
     $item = Get-Item -LiteralPath $Path
-    $drive = Get-PSDrive -Name $item.PSDrive.Name
-    if ($drive.Free -lt $RequiredBytes) {
+    $drive = [System.IO.DriveInfo]::new($item.PSDrive.Root)
+    if ($drive.AvailableFreeSpace -lt $RequiredBytes) {
         throw "Insufficient disk space on $($drive.Name): requires at least $([math]::Round($RequiredBytes / 1GB, 1)) GB free."
     }
 }
