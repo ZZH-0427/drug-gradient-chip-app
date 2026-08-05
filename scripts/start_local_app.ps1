@@ -44,9 +44,9 @@ function InvokeProcessWithTimeout {
     if ($TimeoutSeconds -le 0) { throw "Process timeout must be positive." }
     $startParams = @{
         FilePath = $FilePath
-        ArgumentList = $ArgumentList
         PassThru = $true
     }
+    if ($null -ne $ArgumentList -and $ArgumentList.Count -gt 0) { $startParams["ArgumentList"] = $ArgumentList }
     if ($WorkingDirectory.Trim()) { $startParams["WorkingDirectory"] = $WorkingDirectory }
     if ($RedirectStandardOutput.Trim()) { $startParams["RedirectStandardOutput"] = $RedirectStandardOutput }
     if ($RedirectStandardError.Trim()) { $startParams["RedirectStandardError"] = $RedirectStandardError }

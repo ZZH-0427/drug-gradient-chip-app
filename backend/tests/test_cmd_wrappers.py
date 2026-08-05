@@ -34,3 +34,10 @@ def test_start_script_launches_background_uvicorn_detached() -> None:
     assert "subprocess.CREATE_NEW_PROCESS_GROUP" in script
     assert "CREATE_BREAKAWAY_FROM_JOB" in script
     assert "Uvicorn launcher did not report a valid PID." in script
+
+
+def test_start_script_omits_empty_argument_list_for_no_arg_processes() -> None:
+    script = (ROOT / "scripts" / "start_local_app.ps1").read_text(encoding="utf-8")
+
+    assert 'if ($null -ne $ArgumentList -and $ArgumentList.Count -gt 0)' in script
+    assert '$startParams["ArgumentList"] = $ArgumentList' in script
