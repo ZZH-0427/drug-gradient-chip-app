@@ -2,10 +2,9 @@
 setlocal
 set "ROOT=%~dp0"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\status_local_app.ps1" %*
-if errorlevel 1 (
+set "EXIT_CODE=%ERRORLEVEL%"
+if not "%EXIT_CODE%"=="0" (
   echo.
-  echo Status check failed.
-  pause
-  exit /b 1
+  echo Status check failed with exit code %EXIT_CODE%.
 )
-exit /b 0
+exit /b %EXIT_CODE%

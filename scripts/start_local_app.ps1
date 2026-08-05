@@ -301,6 +301,95 @@ function AssertProcessAlive([int]$TargetProcessId, [string]$StdoutLog, [string]$
     }
 }
 
+function StartUvicornDetached {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Python,
+        [Parameter(Mandatory = $true)] [string[]]$UvicornArguments,
+        [Parameter(Mandatory = $true)] [string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)] [string]$RuntimeDirectory,
+        [Parameter(Mandatory = $true)] [string]$LogsDirectory,
+        [Parameter(Mandatory = $true)] [string]$StdoutLog,
+        [Parameter(Mandatory = $true)] [string]$StderrLog,
+        [int]$TimeoutSeconds = 30
+    )
+    $launcher = Join-Path $RuntimeDirectory "start-uvicorn-detached.py"
+    $payloadPath = Join-Path $RuntimeDirectory ("uvicorn-launch-" + [guid]::NewGuid().ToString("N") + ".json")
+    $launcherStdout = Join-Path $LogsDirectory "uvicorn-launcher.stdout.log"
+    $launcherStderr = Join-Path $LogsDirectory "uvicorn-launcher.stderr.log"
+    $launcherCode = @'
+import json
+import os
+import subprocess
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8-sig") as handle:
+    payload = json.load(handle)
+
+stdout = open(payload["stdout_log"], "ab", buffering=0)
+stderr = open(payload["stderr_log"], "ab", buffering=0)
+creationflags = 0
+if os.name == "nt":
+    creationflags = (
+        subprocess.DETACHED_PROCESS
+        | subprocess.CREATE_NEW_PROCESS_GROUP
+        | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    )
+
+command = [sys.executable] + payload["args"]
+try:
+    process = subprocess.Popen(
+        command,
+        cwd=payload["working_directory"],
+        stdin=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
+        close_fds=True,
+        env=os.environ.copy(),
+        creationflags=creationflags,
+    )
+except OSError:
+    if os.name != "nt" or not (creationflags & getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)):
+        raise
+    creationflags = creationflags & ~getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    process = subprocess.Popen(
+        command,
+        cwd=payload["working_directory"],
+        stdin=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
+        close_fds=True,
+        env=os.environ.copy(),
+        creationflags=creationflags,
+    )
+
+print(process.pid)
+'@
+    $payload = [ordered]@{
+        args = $UvicornArguments
+        working_directory = $WorkingDirectory
+        stdout_log = $StdoutLog
+        stderr_log = $StderrLog
+    }
+    try {
+        $launcherCode | Set-Content -LiteralPath $launcher -Encoding UTF8
+        $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $payloadPath -Encoding UTF8
+        Remove-Item -LiteralPath $launcherStdout, $launcherStderr -Force -ErrorAction SilentlyContinue
+        $launcherProcess = InvokeProcessWithTimeout -FilePath $Python -ArgumentList @($launcher, $payloadPath) -WorkingDirectory $WorkingDirectory -TimeoutSeconds $TimeoutSeconds -NoNewWindow -RedirectStandardOutput $launcherStdout -RedirectStandardError $launcherStderr
+        if ($launcherProcess.ExitCode -ne 0) {
+            ShowLogTail -StdoutLog $launcherStdout -StderrLog $launcherStderr
+            throw "Uvicorn launcher failed with exit code $($launcherProcess.ExitCode)."
+        }
+        $pidText = (Get-Content -LiteralPath $launcherStdout -Raw -ErrorAction Stop).Trim()
+        $targetPid = 0
+        if (-not [int]::TryParse($pidText, [ref]$targetPid) -or $targetPid -le 0) {
+            throw "Uvicorn launcher did not report a valid PID."
+        }
+        return [pscustomobject]@{ Id = $targetPid }
+    } finally {
+        Remove-Item -LiteralPath $payloadPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function WaitJson([string]$Uri, [int]$TimeoutSeconds, [int]$TargetProcessId, [string]$StdoutLog, [string]$StderrLog) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
@@ -401,8 +490,7 @@ try {
         exit $LASTEXITCODE
     }
     Info "Starting app at $url"
-    $processArgs = @($args | ForEach-Object { Quote-ProcessArgument -Value $_ })
-    $process = Start-Process -FilePath $python -ArgumentList $processArgs -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+    $process = StartUvicornDetached -Python $python -UvicornArguments $args -WorkingDirectory $root -RuntimeDirectory $runtimeDir -LogsDirectory $logsDir -StdoutLog $stdoutLog -StderrLog $stderrLog -TimeoutSeconds $ChildProcessTimeoutSeconds
     $processInfo = $null
     $processInfoDeadline = (Get-Date).AddSeconds(10)
     do {
