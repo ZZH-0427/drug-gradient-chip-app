@@ -13,6 +13,7 @@ from app.api.routes.reverse import get_reverse_task_manager
 from app.main import create_app
 from app.model_runtime import reverse_tasks
 from app.model_runtime.reverse_tasks import ReverseTaskManager
+from app.schemas.reverse import ReverseDesignRequest
 from app.schemas.reverse import ReverseTaskStatusResponse
 
 
@@ -293,6 +294,66 @@ def test_queued_reverse_task_can_be_cancelled_without_worker_pid(tmp_path: Path)
 
     assert status is not None
     assert status.status == "cancelled"
+
+
+def test_reverse_worker_uses_hidden_windows_process_options_and_tracks_pid(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    class FakeSettings:
+        def validate_assets(self) -> None:
+            return None
+
+        def checkpoint_path(self, seed: int) -> Path:
+            assert seed == 44
+            return tmp_path / "checkpoint.pt"
+
+    class FakeStartupInfo:
+        def __init__(self) -> None:
+            self.dwFlags = 0
+            self.wShowWindow = None
+
+    class FakeProcess:
+        pid = 24680
+
+    captured: dict[str, Any] = {}
+
+    def fake_popen(args: list[str], **kwargs: object) -> FakeProcess:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr(reverse_tasks.sys, "platform", "win32")
+    monkeypatch.setattr(reverse_tasks.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(reverse_tasks.subprocess, "STARTF_USESHOWWINDOW", 1, raising=False)
+    monkeypatch.setattr(reverse_tasks.subprocess, "SW_HIDE", 0, raising=False)
+    monkeypatch.setattr(reverse_tasks.subprocess, "STARTUPINFO", FakeStartupInfo, raising=False)
+    monkeypatch.setattr(reverse_tasks.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(reverse_tasks, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(reverse_tasks, "process_exists", lambda pid: pid == FakeProcess.pid)
+    monkeypatch.setattr(reverse_tasks.ForwardModelSettings, "from_env", staticmethod(lambda: FakeSettings()))
+
+    status = ReverseTaskManager(root=tmp_path / "tasks").create(
+        ReverseDesignRequest(**reverse_payload()),
+        device="cpu",
+    )
+
+    assert status.status == "running"
+    state = json.loads((tmp_path / "tasks" / status.task_id / "state.json").read_text(encoding="utf-8"))
+    assert state["pid"] == FakeProcess.pid
+    assert captured["args"][0] == reverse_tasks.sys.executable
+    assert captured["args"][1:3] == ["-m", "app.model_runtime.reverse_worker"]
+    assert "--application-root" in captured["args"]
+
+    kwargs = captured["kwargs"]
+    assert kwargs["shell"] is False
+    assert kwargs["stdin"] == reverse_tasks.subprocess.DEVNULL
+    assert kwargs["stdout"].name.endswith("worker.stdout.log")
+    assert kwargs["stderr"].name.endswith("worker.stderr.log")
+    assert kwargs["creationflags"] & reverse_tasks.subprocess.CREATE_NO_WINDOW
+    startupinfo = kwargs["startupinfo"]
+    assert startupinfo.dwFlags & reverse_tasks.subprocess.STARTF_USESHOWWINDOW
+    assert startupinfo.wShowWindow == reverse_tasks.subprocess.SW_HIDE
 
 
 def write_state(root: Path, task_id: str, state: dict[str, object]) -> None:

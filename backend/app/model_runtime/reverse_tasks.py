@@ -77,6 +77,30 @@ def _windows_process_exists(pid: int) -> bool:
             return False
 
 
+def reverse_worker_popen_options(
+    *,
+    cwd: str,
+    stdout: Any,
+    stderr: Any,
+) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "cwd": cwd,
+        "stdin": subprocess.DEVNULL,
+        "stdout": stdout,
+        "stderr": stderr,
+        "shell": False,
+    }
+    if sys.platform == "win32":
+        options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
+        if startupinfo_factory is not None:
+            startupinfo = startupinfo_factory()
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+            startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+            options["startupinfo"] = startupinfo
+    return options
+
+
 @dataclass
 class ReverseTaskManager:
     root: Path
@@ -137,9 +161,11 @@ class ReverseTaskManager:
         try:
             process = subprocess.Popen(
                 args,
-                cwd=str(project_root()),
-                stdout=stdout_handle,
-                stderr=stderr_handle,
+                **reverse_worker_popen_options(
+                    cwd=str(project_root()),
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                ),
             )
         finally:
             stdout_handle.close()
