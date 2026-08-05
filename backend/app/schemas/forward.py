@@ -97,11 +97,11 @@ if Field is not None:
 
         @model_validator(mode="after")
         def validate_predictions(self) -> "ForwardPredictionResponse":
-            if len(self.predictions) != 6:
-                raise ValueError("predictions must contain exactly 6 items")
+            if len(self.predictions) != self.chip_count:
+                raise ValueError("predictions length must equal chip_count")
             for index, item in enumerate(self.predictions, start=1):
                 if item.position != index or item.point != f"y{index}":
-                    raise ValueError("predictions must be ordered by position y1..y6")
+                    raise ValueError("predictions must be ordered by position")
                 if not math.isfinite(float(item.concentration)):
                     raise ValueError("prediction values must be finite")
             return self
@@ -172,7 +172,7 @@ else:
                 raise ValueError("sample_name must not be empty")
             self.chip_count = int(chip_count)
             if self.chip_count < MIN_CHIP_COUNT or self.chip_count > MAX_CHIP_COUNT:
-                raise ValueError("chip_count must be between 4 and 8")
+                raise ValueError("chip_count must be between 4 and 10")
             self.inlet1 = _finite_float(inlet1, "inlet1")
             self.inlet2 = _finite_float(inlet2, "inlet2")
             self.chips = [
@@ -220,8 +220,8 @@ else:
                 item if isinstance(item, ForwardPredictionItem) else ForwardPredictionItem(**item)
                 for item in predictions
             ]
-            if len(self.predictions) != 6:
-                raise ValueError("predictions must contain exactly 6 items")
+            if len(self.predictions) != self.chip_count:
+                raise ValueError("predictions length must equal chip_count")
             for index, item in enumerate(self.predictions, start=1):
                 if item.position != index or item.point != f"y{index}":
-                    raise ValueError("predictions must be ordered by position y1..y6")
+                    raise ValueError("predictions must be ordered by position")

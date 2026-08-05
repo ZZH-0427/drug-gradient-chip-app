@@ -54,21 +54,19 @@ class FakeForwardAdapter:
 
     def predict(self, request: object) -> ForwardPredictionResponse:
         self.predict_calls += 1
+        chips = request.chips_by_position()
         return ForwardPredictionResponse(
-            sample_name="DP 0",
-            inlets={"inlet1": 1.0, "inlet2": 0.0},
-            chip_count=6,
+            sample_name=request.sample_name,
+            inlets={"inlet1": float(request.inlet1), "inlet2": float(request.inlet2)},
+            chip_count=request.chip_count,
             predictions=[
                 ForwardPredictionItem(
                     position=position,
                     point=f"y{position}",
-                    chip_type=chip_type,
+                    chip_type=chip.chip_type,
                     concentration=float(position),
                 )
-                for position, chip_type in enumerate(
-                    ["5to4", "4to2", "1to6", "2to4", "6to3", "3to1"],
-                    start=1,
-                )
+                for position, chip in enumerate(chips, start=1)
             ],
         )
 
@@ -97,13 +95,14 @@ def test_model_status_ready_with_fake_adapter() -> None:
     assert response.json() == {
         "ready": True,
         "model_name": "physics-gnn",
-        "supported_chip_counts": [6],
+        "supported_chip_counts": [4, 5, 6, 7, 8, 9, 10],
         "public_output": "concentration",
         "device": "cpu",
         "forward": {
             "ready": True,
-            "supported_chip_counts": [6],
+            "supported_chip_counts": [4, 5, 6, 7, 8, 9, 10],
             "output": "concentration",
+            "execution_mode": "sync",
         },
         "reverse": {
             "ready": True,
@@ -156,8 +155,8 @@ def test_forward_with_explicit_six_chip_count_returns_six_predictions() -> None:
     assert len(response.json()["predictions"]) == 6
 
 
-@pytest.mark.parametrize("chip_count", [4, 5, 7, 8])
-def test_forward_rejects_supported_future_chip_counts_before_adapter_call(chip_count: int) -> None:
+@pytest.mark.parametrize("chip_count", [4, 5, 7, 8, 9, 10])
+def test_forward_accepts_dynamic_chip_counts(chip_count: int) -> None:
     adapter = FakeForwardAdapter()
     payload = sample_payload()
     payload["chip_count"] = chip_count
@@ -181,16 +180,19 @@ def test_forward_rejects_supported_future_chip_counts_before_adapter_call(chip_c
     with TestClient(create_app(adapter_factory=lambda: adapter)) as client:
         response = client.post("/api/v1/forward", json=payload)
 
-    assert response.status_code == 422
+    assert response.status_code == 200
     body = response.json()
-    assert body["error"]["code"] == "UNSUPPORTED_CHIP_COUNT"
-    assert "6" in body["error"]["message"]
-    assert adapter.predict_calls == 0
-    assert "pytorch_geometric-master" not in response.text
-    assert "best_ablation_checkpoint.pt" not in response.text
+    assert body["chip_count"] == chip_count
+    assert len(body["predictions"]) == chip_count
+    assert body["predictions"][-1]["position"] == chip_count
+    assert "flow" not in body["predictions"][-1]
+    assert "mean" not in body["predictions"][-1]
+    assert "std" not in body["predictions"][-1]
+    assert "seed_values" not in body["predictions"][-1]
+    assert adapter.predict_calls == 1
 
 
-@pytest.mark.parametrize("chip_count", [3, 9, 10])
+@pytest.mark.parametrize("chip_count", [3, 11])
 def test_forward_rejects_out_of_range_chip_count_as_schema_error(chip_count: int) -> None:
     payload = sample_payload()
     payload["chip_count"] = chip_count

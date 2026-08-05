@@ -2,26 +2,31 @@
 
 ## Application Schema
 
-The forward API accepts `chip_count` from 4 through 8 and defaults missing
-`chip_count` to 6 for old clients. The current official forward model still runs
-real inference only for exactly 6 chips; 4, 5, 7, and 8 are rejected before the
-adapter is called.
+The forward API accepts `chip_count` from 4 through 10 and defaults missing
+`chip_count` to 6 for old clients. The request must contain exactly `chip_count`
+chip rows with consecutive positions from 1 through N.
 
 ## Forward Runtime
 
-The application uses the official fixed-six `PhysicsGuidedDualTaskGNN` runtime
-with one bundled checkpoint under `model_assets/physics_gnn/`. The public
-forward response contains only six concentration values. Flow is still produced
-inside the model because the checkpoint and reverse algorithm require the full
-dual-task architecture, but flow is never returned by the public API or frontend.
+The application uses the official dynamic `PhysicsGuidedDualTaskGNN` runtime
+with one bundled checkpoint under `model_assets/physics_gnn/`. The checkpoint
+was trained on six-chip data and is used for zero-shot scale extension to 4
+through 10 chips. The public forward response contains one concentration value
+per chip. Flow is still produced inside the model because the checkpoint and
+reverse algorithm require the full dual-task architecture, but flow is never
+returned by the public API or frontend.
 
-The graph builder preserves the official fixed structure:
+The graph builder uses the official dynamic structure:
 
-- `x`: `[8, 15]`
-- `edge_index`: `[2, 24]`
-- `edge_attr`: `[24, 9]`
+- `x`: `[N + 2, 15]`
+- `edge_index`: `[2, 4N]`
+- `edge_attr`: `[4N, 9]`
 - `u`: `[1, 2]`
-- `chip_physics`: `[6, 7]`
+- `chip_physics`: `[N, 7]`
+
+For N=6, the graph remains equivalent to the previous fixed-six runtime.
+Positions 1 through N are encoded into the checkpoint training range 1 through
+6 before normalization.
 
 No output inverse transform, Normalized, Offset, or DP 0 difference processing
 is added by the application.

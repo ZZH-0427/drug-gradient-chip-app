@@ -5,7 +5,6 @@ import type { ForwardPredictionRequest, ForwardPredictionResponse, ModelStatusRe
 import {
   CHIP_COUNT_OPTIONS,
   CHIP_TYPE_OPTIONS,
-  CURRENT_MODEL_CHIP_COUNT,
   FORWARD_DISTANCE_STEP,
   FORWARD_WIDTH_MAX,
   FORWARD_WIDTH_MIN,
@@ -102,10 +101,6 @@ export function ForwardPage() {
 
   async function submitPrediction() {
     if (!pendingPayload || isSubmitting) {
-      return;
-    }
-    if (pendingPayload.chip_count !== CURRENT_MODEL_CHIP_COUNT) {
-      setApiErrorKind("unsupported_chip_count");
       return;
     }
     setIsSubmitting(true);
@@ -231,7 +226,6 @@ function FormView({
   onConfirm,
 }: FormViewProps) {
   const { t } = useI18n();
-  const canPredict = form.chip_count === CURRENT_MODEL_CHIP_COUNT;
   return (
     <form
       className="tool-panel"
@@ -293,12 +287,6 @@ function FormView({
           </label>
         </fieldset>
       </div>
-
-      {!canPredict ? (
-        <div className="message inline-warning" role="note">
-          {t("forward.modelLimit")}
-        </div>
-      ) : null}
 
       <div className="table-wrap">
         <table className="input-table">
@@ -436,7 +424,6 @@ interface ConfirmDialogProps {
 
 function ConfirmDialog({ payload, isSubmitting, onCancel, onSubmit }: ConfirmDialogProps) {
   const { t } = useI18n();
-  const canSubmit = payload.chip_count === CURRENT_MODEL_CHIP_COUNT;
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <div className="modal">
@@ -449,16 +436,11 @@ function ConfirmDialog({ payload, isSubmitting, onCancel, onSubmit }: ConfirmDia
             points: payload.chip_count * 2,
           })}
         </p>
-        {!canSubmit ? (
-          <div className="message inline-warning" role="note">
-            {t("forward.modelLimit")}
-          </div>
-        ) : null}
         <div className="action-row">
           <button type="button" className="button secondary" disabled={isSubmitting} onClick={onCancel}>
             {t("common.backToEdit")}
           </button>
-          <button type="button" className="button primary" disabled={isSubmitting || !canSubmit} onClick={onSubmit}>
+          <button type="button" className="button primary" disabled={isSubmitting} onClick={onSubmit}>
             {t("common.runPrediction")}
           </button>
         </div>

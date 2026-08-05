@@ -4,7 +4,11 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_forward_model_state
-from app.core.model_state import ForwardModelState
+from app.core.model_state import (
+    FORWARD_SUPPORTED_CHIP_COUNTS,
+    REVERSE_SUPPORTED_CHIP_COUNTS,
+    ForwardModelState,
+)
 from app.schemas.common import ErrorResponse, HealthResponse, ModelStatusResponse
 
 
@@ -38,17 +42,18 @@ def model_status(
     return ModelStatusResponse(
         ready=True,
         model_name=model_state.model_name,
-        supported_chip_counts=model_state.supported_chip_counts or [6],
+        supported_chip_counts=model_state.supported_chip_counts or FORWARD_SUPPORTED_CHIP_COUNTS,
         public_output=model_state.public_output,
         device=model_state.device,
         forward={
             "ready": True,
-            "supported_chip_counts": [6],
+            "supported_chip_counts": FORWARD_SUPPORTED_CHIP_COUNTS,
             "output": "concentration",
+            "execution_mode": "sync",
         },
         reverse={
             "ready": True,
-            "supported_chip_counts": [6],
+            "supported_chip_counts": REVERSE_SUPPORTED_CHIP_COUNTS,
             "execution_mode": "async",
             "max_concurrent_tasks": 1,
         },

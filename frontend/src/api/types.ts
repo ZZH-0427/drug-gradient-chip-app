@@ -39,6 +39,7 @@ export interface ModelStatusResponse {
     ready?: boolean;
     supported_chip_counts?: number[];
     output?: string;
+    execution_mode?: string;
   };
   reverse?: {
     ready?: boolean;

@@ -8,10 +8,11 @@ from typing import Any, Sequence
 import pandas as pd
 
 from app.core.errors import ModelErrorCode, ModelRuntimeError
+from app.core.chip_count import MAX_CHIP_COUNT, MIN_CHIP_COUNT
 from app.schemas.forward import ForwardChipInput, ForwardPredictionRequest
 
 
-P_COLUMN_PATTERN = re.compile(r"^\s*p\s*(1[0-2]|[1-9])(?:\D|$)", re.IGNORECASE)
+P_COLUMN_PATTERN = re.compile(r"^\s*p\s*(\d+)(?:\D|$)", re.IGNORECASE)
 CHANNEL_PATTERN = re.compile(r"(?:outlet\s*)?(\d+)\s*to\s*(\d+)", re.IGNORECASE)
 
 
@@ -92,17 +93,31 @@ def locate_columns(headers: Sequence[Any]) -> dict[str, Any]:
 
         match = P_COLUMN_PATTERN.match(clean_text(header))
         if match:
-            p_width_columns[int(match.group(1))] = index
+            if _is_distance_header(header) or _is_position_header(header):
+                continue
+            p_number = int(match.group(1))
+            if p_number > MAX_CHIP_COUNT * 2:
+                raise ValueError(f"Input table contains unsupported tail point P{p_number}")
+            p_width_columns[p_number] = index
 
     if inlet1_index is None or inlet2_index is None:
         raise ValueError("Input table must contain inlet1 and inlet2 columns")
 
-    missing_p = [number for number in range(1, 13) if number not in p_width_columns]
+    if not p_width_columns:
+        raise ValueError("Input table must contain P width columns")
+    max_p_number = max(p_width_columns)
+    if max_p_number % 2:
+        raise ValueError("Input table must contain complete P pairs")
+    chip_count = max_p_number // 2
+    if chip_count < MIN_CHIP_COUNT or chip_count > MAX_CHIP_COUNT:
+        raise ValueError("chip_count must be between 4 and 10")
+
+    missing_p = [number for number in range(1, max_p_number + 1) if number not in p_width_columns]
     if missing_p:
         raise ValueError("Input table is missing width columns: " + ", ".join(f"P{n}" for n in missing_p))
 
     p_columns: dict[int, dict[str, Any]] = {}
-    for p_number in range(1, 13):
+    for p_number in range(1, max_p_number + 1):
         width_index = p_width_columns[p_number]
         next_indexes = [idx for number, idx in p_width_columns.items() if idx > width_index]
         stop_index = min(next_indexes) if next_indexes else len(headers)
@@ -129,7 +144,7 @@ def locate_columns(headers: Sequence[Any]) -> dict[str, Any]:
             "channel": _parse_channel_name_from_header(headers[width_index]),
         }
 
-    return {"name": 0, "inlet1": inlet1_index, "inlet2": inlet2_index, "p": p_columns}
+    return {"name": 0, "inlet1": inlet1_index, "inlet2": inlet2_index, "p": p_columns, "chip_count": chip_count}
 
 
 def _row_is_description(row: Sequence[Any]) -> bool:
@@ -137,7 +152,7 @@ def _row_is_description(row: Sequence[Any]) -> bool:
     if first in {"名称", "name", "样本", "samplename"}:
         return True
     tokens = {normalized_name(value) for value in row if clean_text(value)}
-    return "p1" in tokens and "p12" in tokens
+    return "p1" in tokens and any(f"p{number}" in tokens for number in range(8, MAX_CHIP_COUNT * 2 + 1, 2))
 
 
 def parse_forward_csv(path: Path) -> list[ForwardPredictionRequest]:
@@ -160,7 +175,8 @@ def parse_forward_csv(path: Path) -> list[ForwardPredictionRequest]:
             sample_name = clean_text(row[columns["name"]]) or f"sample_{row_index}"
             chips: list[ForwardChipInput] = []
 
-            for node_index in range(6):
+            chip_count = int(columns["chip_count"])
+            for node_index in range(chip_count):
                 left_p = node_index * 2 + 1
                 right_p = left_p + 1
                 left_columns = columns["p"][left_p]
@@ -201,6 +217,7 @@ def parse_forward_csv(path: Path) -> list[ForwardPredictionRequest]:
             requests.append(
                 ForwardPredictionRequest(
                     sample_name=sample_name,
+                    chip_count=chip_count,
                     inlet1=as_float(row[columns["inlet1"]], f"{sample_name}.inlet1"),
                     inlet2=as_float(row[columns["inlet2"]], f"{sample_name}.inlet2"),
                     chips=chips,

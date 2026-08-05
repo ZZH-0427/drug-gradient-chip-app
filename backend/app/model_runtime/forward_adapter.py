@@ -31,6 +31,7 @@ class ForwardModelAdapter:
                 u=raw_graph.u,
                 chip_physics=raw_graph.chip_physics,
                 chip_physics_z=raw_graph.chip_physics_z,
+                node_type=raw_graph.node_type,
             )
             batch = Batch.from_data_list([graph]).to(self.device)
             with torch.inference_mode():

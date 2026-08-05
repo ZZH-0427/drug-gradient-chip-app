@@ -3,8 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.core.config import DEFAULT_SEEDS
+from app.core.chip_count import MAX_CHIP_COUNT, MIN_CHIP_COUNT
 from app.schemas.forward import ForwardPredictionRequest, ForwardPredictionResponse
+
+
+FORWARD_SUPPORTED_CHIP_COUNTS = list(range(MIN_CHIP_COUNT, MAX_CHIP_COUNT + 1))
+REVERSE_SUPPORTED_CHIP_COUNTS = [6]
 
 
 class ForwardAdapterProtocol(Protocol):
@@ -33,7 +37,7 @@ class ForwardModelState:
             ready=False,
             error_code=code,
             error_message=message,
-            supported_chip_counts=[6],
+            supported_chip_counts=FORWARD_SUPPORTED_CHIP_COUNTS,
         )
 
     @classmethod
@@ -44,6 +48,6 @@ class ForwardModelState:
         return cls(
             ready=True,
             adapter=adapter,
-            supported_chip_counts=[6],
+            supported_chip_counts=FORWARD_SUPPORTED_CHIP_COUNTS,
             device=device,
         )

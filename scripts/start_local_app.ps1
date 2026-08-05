@@ -13,7 +13,8 @@ param(
     [switch]$NoBrowser,
     [switch]$Foreground,
     [string]$BrowserCommand = "",
-    [int]$StartupTimeoutSeconds = 90
+    [int]$StartupTimeoutSeconds = 90,
+    [int]$ChildProcessTimeoutSeconds = 120
 )
 
 Set-StrictMode -Version Latest
@@ -29,6 +30,36 @@ function RuntimeReadyMarkerPath([string]$Root) { return Join-Path (Join-Path $Ro
 function Quote-ProcessArgument([string]$Value) {
     if ($Value -notmatch '[\s"]') { return $Value }
     return '"' + ($Value -replace '"', '\"') + '"'
+}
+function InvokeProcessWithTimeout {
+    param(
+        [Parameter(Mandatory = $true)] [string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [string]$WorkingDirectory = "",
+        [int]$TimeoutSeconds = 300,
+        [string]$RedirectStandardOutput = "",
+        [string]$RedirectStandardError = "",
+        [switch]$NoNewWindow
+    )
+    if ($TimeoutSeconds -le 0) { throw "Process timeout must be positive." }
+    $startParams = @{
+        FilePath = $FilePath
+        ArgumentList = $ArgumentList
+        PassThru = $true
+    }
+    if ($WorkingDirectory.Trim()) { $startParams["WorkingDirectory"] = $WorkingDirectory }
+    if ($RedirectStandardOutput.Trim()) { $startParams["RedirectStandardOutput"] = $RedirectStandardOutput }
+    if ($RedirectStandardError.Trim()) { $startParams["RedirectStandardError"] = $RedirectStandardError }
+    if ($NoNewWindow) { $startParams["NoNewWindow"] = $true }
+    $process = Start-Process @startParams
+    $null = $process.Handle
+    if ($process.WaitForExit($TimeoutSeconds * 1000)) {
+        $process.WaitForExit(1000) | Out-Null
+        $process.Refresh()
+        return $process
+    }
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw "Process timed out after ${TimeoutSeconds}s: $FilePath $($ArgumentList -join ' ')"
 }
 function ResolveRuntimeMode([string]$Root, [string]$RequestedMode) {
     if ($RequestedMode -ne "Auto") { return $RequestedMode.ToLowerInvariant() }
@@ -136,7 +167,7 @@ function EnsurePortableRuntimeReady([string]$Root, [string]$LogsDir) {
     $stdoutLog = Join-Path $LogsDir "conda-unpack.stdout.log"
     $stderrLog = Join-Path $LogsDir "conda-unpack.stderr.log"
     Info "Relocating portable runtime for this directory."
-    $process = Start-Process -FilePath $condaUnpack -WorkingDirectory $Root -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    $process = InvokeProcessWithTimeout -FilePath $condaUnpack -WorkingDirectory $Root -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
     if ($process.ExitCode -ne 0) {
         ShowCondaUnpackLogTail -StdoutLog $stdoutLog -StderrLog $stderrLog
         throw "Portable runtime relocation failed with exit code $($process.ExitCode)."
@@ -209,11 +240,11 @@ function BuildFrontend([string]$Root, [switch]$Force) {
     if ($null -eq $node -or $null -eq $npm) { throw "Node.js and npm.cmd are required to build frontend." }
     if (-not (Test-Path -LiteralPath (Join-Path $frontend "node_modules"))) {
         Info "Running npm ci."
-        $ci = Start-Process -FilePath $npm.Source -ArgumentList @("ci") -WorkingDirectory $frontend -Wait -PassThru -NoNewWindow
+        $ci = InvokeProcessWithTimeout -FilePath $npm.Source -ArgumentList @("ci") -WorkingDirectory $frontend -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
         if ($ci.ExitCode -ne 0) { throw "npm ci failed." }
     }
     Info "Running npm run build."
-    $build = Start-Process -FilePath $npm.Source -ArgumentList @("run", "build") -WorkingDirectory $frontend -Wait -PassThru -NoNewWindow
+    $build = InvokeProcessWithTimeout -FilePath $npm.Source -ArgumentList @("run", "build") -WorkingDirectory $frontend -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
     if ($build.ExitCode -ne 0) { throw "frontend build failed." }
     $distIndex = Join-Path $frontend "dist\index.html"
     $distAssets = Join-Path $frontend "dist\assets"
@@ -267,6 +298,95 @@ function AssertProcessAlive([int]$TargetProcessId, [string]$StdoutLog, [string]$
     $running = Get-Process -Id $TargetProcessId -ErrorAction SilentlyContinue
     if ($null -eq $running) {
         throw "Uvicorn exited before startup completed."
+    }
+}
+
+function StartUvicornDetached {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Python,
+        [Parameter(Mandatory = $true)] [string[]]$UvicornArguments,
+        [Parameter(Mandatory = $true)] [string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)] [string]$RuntimeDirectory,
+        [Parameter(Mandatory = $true)] [string]$LogsDirectory,
+        [Parameter(Mandatory = $true)] [string]$StdoutLog,
+        [Parameter(Mandatory = $true)] [string]$StderrLog,
+        [int]$TimeoutSeconds = 30
+    )
+    $launcher = Join-Path $RuntimeDirectory "start-uvicorn-detached.py"
+    $payloadPath = Join-Path $RuntimeDirectory ("uvicorn-launch-" + [guid]::NewGuid().ToString("N") + ".json")
+    $launcherStdout = Join-Path $LogsDirectory "uvicorn-launcher.stdout.log"
+    $launcherStderr = Join-Path $LogsDirectory "uvicorn-launcher.stderr.log"
+    $launcherCode = @'
+import json
+import os
+import subprocess
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8-sig") as handle:
+    payload = json.load(handle)
+
+stdout = open(payload["stdout_log"], "ab", buffering=0)
+stderr = open(payload["stderr_log"], "ab", buffering=0)
+creationflags = 0
+if os.name == "nt":
+    creationflags = (
+        subprocess.DETACHED_PROCESS
+        | subprocess.CREATE_NEW_PROCESS_GROUP
+        | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    )
+
+command = [sys.executable] + payload["args"]
+try:
+    process = subprocess.Popen(
+        command,
+        cwd=payload["working_directory"],
+        stdin=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
+        close_fds=True,
+        env=os.environ.copy(),
+        creationflags=creationflags,
+    )
+except OSError:
+    if os.name != "nt" or not (creationflags & getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)):
+        raise
+    creationflags = creationflags & ~getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    process = subprocess.Popen(
+        command,
+        cwd=payload["working_directory"],
+        stdin=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=stderr,
+        close_fds=True,
+        env=os.environ.copy(),
+        creationflags=creationflags,
+    )
+
+print(process.pid)
+'@
+    $payload = [ordered]@{
+        args = $UvicornArguments
+        working_directory = $WorkingDirectory
+        stdout_log = $StdoutLog
+        stderr_log = $StderrLog
+    }
+    try {
+        $launcherCode | Set-Content -LiteralPath $launcher -Encoding UTF8
+        $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $payloadPath -Encoding UTF8
+        Remove-Item -LiteralPath $launcherStdout, $launcherStderr -Force -ErrorAction SilentlyContinue
+        $launcherProcess = InvokeProcessWithTimeout -FilePath $Python -ArgumentList @($launcher, $payloadPath) -WorkingDirectory $WorkingDirectory -TimeoutSeconds $TimeoutSeconds -NoNewWindow -RedirectStandardOutput $launcherStdout -RedirectStandardError $launcherStderr
+        if ($launcherProcess.ExitCode -ne 0) {
+            ShowLogTail -StdoutLog $launcherStdout -StderrLog $launcherStderr
+            throw "Uvicorn launcher failed with exit code $($launcherProcess.ExitCode)."
+        }
+        $pidText = (Get-Content -LiteralPath $launcherStdout -Raw -ErrorAction Stop).Trim()
+        $targetPid = 0
+        if (-not [int]::TryParse($pidText, [ref]$targetPid) -or $targetPid -le 0) {
+            throw "Uvicorn launcher did not report a valid PID."
+        }
+        return [pscustomobject]@{ Id = $targetPid }
+    } finally {
+        Remove-Item -LiteralPath $payloadPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -346,7 +466,7 @@ try {
         $python
     )
     $verifyProcessArgs = @($verifyArgs | ForEach-Object { Quote-ProcessArgument -Value $_ })
-    $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyProcessArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    $verify = InvokeProcessWithTimeout -FilePath "powershell.exe" -ArgumentList $verifyProcessArgs -WorkingDirectory $root -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
     if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"
@@ -370,8 +490,7 @@ try {
         exit $LASTEXITCODE
     }
     Info "Starting app at $url"
-    $processArgs = @($args | ForEach-Object { Quote-ProcessArgument -Value $_ })
-    $process = Start-Process -FilePath $python -ArgumentList $processArgs -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+    $process = StartUvicornDetached -Python $python -UvicornArguments $args -WorkingDirectory $root -RuntimeDirectory $runtimeDir -LogsDirectory $logsDir -StdoutLog $stdoutLog -StderrLog $stderrLog -TimeoutSeconds $ChildProcessTimeoutSeconds
     $processInfo = $null
     $processInfoDeadline = (Get-Date).AddSeconds(10)
     do {

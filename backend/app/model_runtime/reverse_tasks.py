@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -41,6 +42,8 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def process_exists(pid: int) -> bool:
+    if sys.platform == "win32":
+        return _windows_process_exists(pid)
     completed = subprocess.run(
         ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
         check=False,
@@ -49,6 +52,29 @@ def process_exists(pid: int) -> bool:
         timeout=5,
     )
     return f'"{pid}"' in completed.stdout or f",{pid}," in completed.stdout
+
+
+def _windows_process_exists(pid: int) -> bool:
+    try:
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            int(pid),
+        )
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        error_access_denied = 5
+        return ctypes.windll.kernel32.GetLastError() == error_access_denied
+    except Exception:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
 
 
 @dataclass

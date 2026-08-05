@@ -23,6 +23,11 @@ def map_prediction_response(
 ) -> ForwardPredictionResponse:
     try:
         chips = request.chips_by_position()
+        values = np.asarray(prediction, dtype=float).reshape(-1)
+        if values.size != request.chip_count:
+            raise ValueError(
+                f"prediction length must equal chip_count: {values.size} vs {request.chip_count}"
+            )
         items: list[ForwardPredictionItem] = []
         for index, chip in enumerate(chips):
             point = f"y{index + 1}"
@@ -31,7 +36,7 @@ def map_prediction_response(
                     position=index + 1,
                     point=point,
                     chip_type=chip.chip_type,
-                    concentration=_finite(prediction[0, index], f"{point}.concentration"),
+                    concentration=_finite(values[index], f"{point}.concentration"),
                 )
             )
 

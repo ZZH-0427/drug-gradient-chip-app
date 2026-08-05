@@ -258,6 +258,18 @@ def test_running_reverse_task_timeout_marks_failed_and_kills_worker(
     assert state["error"]["code"] == "REVERSE_TASK_TIMEOUT"
 
 
+def test_process_exists_uses_windows_api_without_tasklist(monkeypatch: Any) -> None:
+    def fail_tasklist(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise AssertionError("tasklist should not be used on Windows")
+
+    monkeypatch.setattr(reverse_tasks.sys, "platform", "win32")
+    monkeypatch.setattr(reverse_tasks.subprocess, "run", fail_tasklist)
+    monkeypatch.setattr(reverse_tasks, "_windows_process_exists", lambda pid: pid == 12345)
+
+    assert reverse_tasks.process_exists(12345) is True
+    assert reverse_tasks.process_exists(54321) is False
+
+
 def test_queued_reverse_task_can_be_cancelled_without_worker_pid(tmp_path: Path) -> None:
     task_id = "task-queued"
     now = datetime.now(UTC).isoformat()
