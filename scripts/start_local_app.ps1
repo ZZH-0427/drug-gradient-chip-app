@@ -46,7 +46,9 @@ function InvokeProcessWithTimeout {
         FilePath = $FilePath
         PassThru = $true
     }
-    if ($null -ne $ArgumentList -and $ArgumentList.Count -gt 0) { $startParams["ArgumentList"] = $ArgumentList }
+    if ($null -ne $ArgumentList -and $ArgumentList.Count -gt 0) {
+        $startParams["ArgumentList"] = @($ArgumentList | ForEach-Object { Quote-ProcessArgument -Value $_ })
+    }
     if ($WorkingDirectory.Trim()) { $startParams["WorkingDirectory"] = $WorkingDirectory }
     if ($RedirectStandardOutput.Trim()) { $startParams["RedirectStandardOutput"] = $RedirectStandardOutput }
     if ($RedirectStandardError.Trim()) { $startParams["RedirectStandardError"] = $RedirectStandardError }
