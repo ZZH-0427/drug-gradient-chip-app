@@ -111,8 +111,6 @@ export const zhCN = {
     rightDistance: "右距离",
     bendClass: "bend class",
     selectedRestart: "selected restart",
-    warningTargetRange:
-      "目标浓度中包含超出推荐密集训练范围 [0.10, 0.95] 的数值，请谨慎评估结果。",
     internalScreeningNote:
       "内部筛选仅表示该结构已通过同一 Physics-GNN 代理模型的检查。",
     cfdNote: "最终设计仍需使用 Fluent/CFD 进行独立验证。",
@@ -269,8 +267,6 @@ export const en = {
     rightDistance: "Right Distance",
     bendClass: "bend class",
     selectedRestart: "selected restart",
-    warningTargetRange:
-      "Some target concentrations fall outside the recommended dense training range [0.10, 0.95]. Please evaluate the result carefully.",
     internalScreeningNote:
       "Internal screening only indicates that the structure was evaluated by the same Physics-GNN surrogate model.",
     cfdNote: "The final design must still be independently verified using Fluent/CFD.",

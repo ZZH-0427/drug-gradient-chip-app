@@ -18,8 +18,6 @@ import { usePageTitle } from "../i18n/usePageTitle";
 
 export const REVERSE_TASK_STORAGE_KEY = "drug-gradient-chip.reverse-task-id";
 
-const LEGACY_TARGET_RANGE_WARNING =
-  "Target concentrations include values outside the recommended dense training range [0.10, 0.95]; review the result carefully.";
 const LEGACY_INTERNAL_SCREENING_NOTE =
   "Internal screening only means the structure was checked by the same Physics-GNN surrogate model.";
 const LEGACY_CFD_NOTE = "Final designs should still be independently verified with Fluent/CFD.";
@@ -64,9 +62,6 @@ function statusText(status: string | undefined, t: I18nContextValue["t"]) {
 }
 
 function localizeReverseMessage(message: string, t: I18nContextValue["t"]) {
-  if (message === LEGACY_TARGET_RANGE_WARNING || message.includes("[0.10, 0.95]")) {
-    return t("reverse.warningTargetRange");
-  }
   if (message === LEGACY_INTERNAL_SCREENING_NOTE || message.includes("Physics-GNN surrogate model")) {
     return t("reverse.internalScreeningNote");
   }
@@ -346,11 +341,6 @@ export function ReversePage() {
             </div>
           </div>
           {taskError ? <div className="message error">{apiErrorCodeMessage(taskError, t)}</div> : null}
-          {task.warnings.map((warning) => (
-            <div className="message inline-warning" key={warning}>
-              {localizeReverseMessage(warning, t)}
-            </div>
-          ))}
 
           {task.result ? (
             <>
