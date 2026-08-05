@@ -237,14 +237,19 @@ describe("Reverse localized task submission and cancellation", () => {
 });
 
 describe("Reverse localized results", () => {
-  it("renders Chinese warning and notes without legacy English or old product name", async () => {
+  it("hides result warnings while preserving Chinese notes, metrics, and result rows", async () => {
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
     mockFetch(jsonResponse(completedTask()));
 
     renderReversePage();
 
     expect(await screen.findByText("已完成, 耗时 1.00 秒")).toBeInTheDocument();
-    expect(screen.getByText("目标浓度中包含超出推荐密集训练范围 [0.10, 0.95] 的数值，请谨慎评估结果。")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("[0.10, 0.95]");
+    expect(screen.getByText("MAE: 0.001000")).toBeInTheDocument();
+    expect(screen.getByText("RMSE: 0.001000")).toBeInTheDocument();
+    expect(screen.getByText("MaxAE: 0.001000")).toBeInTheDocument();
+    expect(screen.getByText("Spearman: 1.000000")).toBeInTheDocument();
+    expect(screen.getAllByText("0.101000")).toHaveLength(6);
     expect(screen.getByText("内部筛选仅表示该结构已通过同一 Physics-GNN 代理模型的检查。")).toBeInTheDocument();
     expect(screen.getByText("最终设计仍需使用 Fluent/CFD 进行独立验证。")).toBeInTheDocument();
     expect(screen.getByText("反向预测中的复算浓度由反向优化所使用的内部代理模型生成，可能与独立正向预测结果存在轻微差异。")).toBeInTheDocument();
