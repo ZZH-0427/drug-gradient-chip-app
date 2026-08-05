@@ -467,8 +467,7 @@ try {
         "-PythonPath",
         $python
     )
-    $verifyProcessArgs = @($verifyArgs | ForEach-Object { Quote-ProcessArgument -Value $_ })
-    $verify = InvokeProcessWithTimeout -FilePath "powershell.exe" -ArgumentList $verifyProcessArgs -WorkingDirectory $root -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
+    $verify = InvokeProcessWithTimeout -FilePath "powershell.exe" -ArgumentList $verifyArgs -WorkingDirectory $root -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
     if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"

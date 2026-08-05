@@ -41,3 +41,10 @@ def test_start_script_omits_empty_argument_list_for_no_arg_processes() -> None:
 
     assert 'if ($null -ne $ArgumentList -and $ArgumentList.Count -gt 0)' in script
     assert '$startParams["ArgumentList"] = @($ArgumentList | ForEach-Object { Quote-ProcessArgument -Value $_ })' in script
+
+
+def test_asset_verification_arguments_are_not_prequoted_twice() -> None:
+    script = (ROOT / "scripts" / "start_local_app.ps1").read_text(encoding="utf-8")
+
+    assert '$verify = InvokeProcessWithTimeout -FilePath "powershell.exe" -ArgumentList $verifyArgs' in script
+    assert "$verifyProcessArgs" not in script
