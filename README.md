@@ -1,19 +1,19 @@
 # Drug Gradient Chip App
 
 Local FastAPI and React application for drug concentration gradient chip
-forward prediction and fixed-six-chip Reverse Prediction.
+dynamic forward prediction and fixed-six-chip Reverse Prediction.
 
 ## Current Product Scope
 
-- Forward prediction uses the official fixed-six `PhysicsGuidedDualTaskGNN`
-  checkpoint.
+- Forward prediction uses the official dynamic `PhysicsGuidedDualTaskGNN`
+  runtime with one shared seed44 checkpoint.
+- Forward prediction supports `chip_count=4` through `chip_count=10`.
+- The checkpoint was trained on six-chip data and is used for zero-shot scale
+  extension to 4 through 10 chips; runtime support does not mean each scale was
+  retrained or CFD validated.
 - Forward public output contains concentration only.
 - The model still computes flow internally, but flow is not exposed by the API
   or frontend.
-- The frontend can configure 4 through 8 chips as a transition UI, but only
-  `chip_count=6` can run real prediction.
-- Non-six forward requests return `UNSUPPORTED_CHIP_COUNT` before the model
-  adapter is called.
 - Reverse Prediction is available for fixed six-chip targets and runs through an
   asynchronous single-task API.
 - Reverse results require independent Fluent/CFD validation before fabrication
@@ -24,10 +24,6 @@ forward prediction and fixed-six-chip Reverse Prediction.
 - Language switching affects only frontend text, `html lang`, and browser tab
   titles. API routes, request payloads, model checkpoints, and model results are
   unchanged.
-
-The current official forward model does not support real 4 through 8 variable
-chip inference. That support must wait for an updated official `forward_predict`
-implementation.
 
 ## Model Assets
 
@@ -86,7 +82,7 @@ Forward:
 - Forward chip `left_width_mm` and `right_width_mm` must be finite values from
   `0.04` through `0.31` mm. The frontend width inputs use `step=0.001`; bend
   straight distance inputs keep `step=1`.
-- Response contains `chip_count` and six concentration predictions.
+- Response contains `chip_count` and one concentration prediction per chip.
 - The response does not contain `flow`, `mean`, `std`, `seed_values`, or
   checkpoint paths.
 
@@ -107,10 +103,8 @@ values fall back to Chinese. The product names are:
 - Chinese: `正向预测`, `反向预测`
 - English: `Forward Prediction`, `Reverse Prediction`
 
-The frontend can configure 4 through 8 chips as a transition UI, but the current
-official forward model still allows real prediction only for 6 chips. Reverse
-Prediction remains fixed to 6 chips and still requires independent Fluent/CFD
-validation.
+Forward Prediction supports four to ten chips. Reverse Prediction remains fixed
+to 6 chips and still requires independent Fluent/CFD validation.
 
 ## Local Single-Port Run
 

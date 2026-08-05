@@ -325,7 +325,7 @@ function Invoke-HttpValidation([string]$Url, [string]$PayloadPath) {
     }
     $payload = Get-Content -LiteralPath $PayloadPath -Raw
     $forward = Invoke-RestMethod -Method Post -Uri "$Url/api/v1/forward" -ContentType "application/json" -Body $payload -TimeoutSec 60
-    if ($forward.predictions.Count -ne 6) { throw "Forward endpoint did not return six predictions." }
+    if ($forward.predictions.Count -ne 6) { throw "Forward endpoint did not return the expected validation predictions." }
 }
 
 function Invoke-PortableLifecycleValidation([string]$PackageRoot, [string]$PayloadPath, [int]$Port) {
@@ -675,8 +675,8 @@ with tarfile.open(archive, "r:gz") as handle:
         model_seed = 44
         checkpoint_file = "best_concentration_checkpoint.pt"
         checkpoint_sha256 = $checkpointSha
-        forward_supported_chip_counts = @(6)
-        forward_configurable_chip_counts = @(4, 5, 6, 7, 8)
+        forward_supported_chip_counts = @(4, 5, 6, 7, 8, 9, 10)
+        forward_configurable_chip_counts = @(4, 5, 6, 7, 8, 9, 10)
         reverse_supported_chip_counts = @(6)
         interface_languages = @("zh-CN", "en")
         internal_test_notice = "This is an internal test build and is not a production release."
@@ -702,8 +702,8 @@ Checkpoint file: best_concentration_checkpoint.pt
 Checkpoint SHA256: $checkpointSha
 Build timestamp UTC: $($buildInfo.build_time_utc)
 Builder script: scripts/build_portable_package.ps1
-Forward supported chip counts: [6]
-Forward configurable chip counts: [4,5,6,7,8]
+Forward supported chip counts: [4,5,6,7,8,9,10]
+Forward configurable chip counts: [4,5,6,7,8,9,10]
 Reverse supported chip counts: [6]
 Interface languages: [zh-CN,en]
 Torch version: $($coreVersions.torch)
@@ -722,8 +722,8 @@ This is an internal test build and is not a production release.
 此版本为内部测试版，不是正式发布版本。
 默认界面语言为中文，可在右上角切换到 English/EN。
 语言偏好保存在本地浏览器中，刷新后会保持。
-正向预测 / Forward Prediction 当前真实模型只支持 6 个芯片。
-4、5、7、8 个芯片只允许配置表单，不能执行真实预测。
+正向预测 / Forward Prediction 支持 4～10 个芯片真实预测。
+该 checkpoint 由六芯片数据训练，并通过 zero-shot scale extension 扩展到 4～10 个芯片。
 正向宽度范围为 0.04 到 0.31 mm，宽度步长为 0.001 mm。
 距离输入步长为 1 mm。
 正向预测公共结果只显示浓度，不显示 flow、seed、mean 或 std。
@@ -745,8 +745,8 @@ English
 This is an internal test build and is not a production release.
 The default interface language is Chinese. Use the top-right language switcher to choose EN.
 The language preference is stored in the local browser and survives refresh.
-Forward Prediction currently supports real prediction for six chips only.
-Chip counts 4, 5, 7, and 8 are configurable in the form but cannot run real prediction yet.
+Forward Prediction supports real prediction for four to ten chips.
+The checkpoint was trained on six-chip data and is used for zero-shot scale extension to four through ten chips.
 Forward width range is 0.04 to 0.31 mm with a 0.001 mm step.
 Distance inputs use a 1 mm step.
 Forward public output contains concentration only; flow, seed, mean, and std are not shown.

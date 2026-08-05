@@ -2,14 +2,14 @@
 
 ## Completed
 
-- Official fixed-six `PhysicsGuidedDualTaskGNN` forward runtime is integrated.
+- Official dynamic `PhysicsGuidedDualTaskGNN` forward runtime is integrated.
 - Bundled model assets use `model_assets/physics_gnn/` with one seed44
   checkpoint and a safe manifest.
 - Forward public output is concentration-only; flow remains internal.
 - Five-seed ensemble fields, mean/std, and seed values are removed from the
   public API and frontend.
-- The frontend can configure 4 through 8 chips, but only 6 can run real forward
-  prediction until the official variable-node `forward_predict.py` is updated.
+- Forward Prediction supports 4 through 10 chips with zero-shot scale extension
+  from the six-chip training checkpoint.
 - Fixed-six Reverse Prediction is available as an asynchronous single-task
   workflow.
 - The frontend supports `zh-CN` and `en`; Chinese is the default and the
@@ -56,9 +56,9 @@ npm run build
 
 ## Known Limits
 
-- Current official forward inference supports exactly 6 chips.
-- 4 through 8 UI configuration is a transition surface; non-six forward
-  requests are rejected before model invocation.
+- Forward Prediction uses six-chip trained weights for zero-shot 4 through 10
+  scale extension; each non-six scale still requires independent scientific
+  validation before fabrication decisions.
 - Reverse Prediction is fixed to 6 chips, may take tens of seconds on CPU, and
   returns a surrogate-model design that still requires independent Fluent/CFD
   validation.
@@ -66,7 +66,7 @@ npm run build
 
 ## Next Steps
 
-- Wait for the official `forward_predict.py` update before enabling real 4
-  through 8 chip forward inference.
+- Keep dynamic forward tests covering 4 through 10 chip counts as the product
+  evolves.
 - Keep release packages limited to the shared seed44 checkpoint and application
   runtime files.
