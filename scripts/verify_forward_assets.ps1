@@ -50,6 +50,26 @@ if ([string]$manifest.model_family -ne "PhysicsGuidedDualTaskGNN") {
     Write-Error "Unexpected model family: $($manifest.model_family)"
     exit 1
 }
+if (($manifest.supported_forward_chip_counts -join ",") -ne "4,5,6,7,8,9,10") {
+    Write-Error "Unexpected forward chip counts: $($manifest.supported_forward_chip_counts -join ',')"
+    $failed = $true
+}
+if (($manifest.supported_reverse_chip_counts -join ",") -ne "6") {
+    Write-Error "Unexpected reverse chip counts: $($manifest.supported_reverse_chip_counts -join ',')"
+    $failed = $true
+}
+if ([string]$manifest.forward_graph_mode -ne "dynamic") {
+    Write-Error "Unexpected forward graph mode: $($manifest.forward_graph_mode)"
+    $failed = $true
+}
+if ([int]$manifest.training_chip_count -ne 6) {
+    Write-Error "Unexpected training chip count: $($manifest.training_chip_count)"
+    $failed = $true
+}
+if ([string]$manifest.scale_extension -ne "zero_shot") {
+    Write-Error "Unexpected scale extension: $($manifest.scale_extension)"
+    $failed = $true
+}
 if ([string]$manifest.public_forward_output -ne "concentration_only") {
     Write-Error "Unexpected public output: $($manifest.public_forward_output)"
     exit 1

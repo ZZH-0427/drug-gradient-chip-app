@@ -31,8 +31,11 @@ def test_bundled_manifest_has_expected_runtime_assets(monkeypatch) -> None:
     assert manifest["checkpoint_file"] == "best_concentration_checkpoint.pt"
     assert manifest["checkpoint_sha256"] == "f6f80287d3b04145daf01c5267f7b304cca88bd2331d380063f49d43b6ead0cc"
     assert manifest["checkpoint_size_bytes"] > 0
-    assert manifest["supported_forward_chip_counts"] == [6]
+    assert manifest["supported_forward_chip_counts"] == [4, 5, 6, 7, 8, 9, 10]
     assert manifest["supported_reverse_chip_counts"] == [6]
+    assert manifest["forward_graph_mode"] == "dynamic"
+    assert manifest["training_chip_count"] == 6
+    assert manifest["scale_extension"] == "zero_shot"
     assert manifest["public_forward_output"] == "concentration_only"
     assert "\\" not in manifest["checkpoint_file"]
 

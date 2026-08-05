@@ -7,18 +7,16 @@ from typing import Any, Mapping
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-from torch_geometric.nn import TransformerConv
+from torch_geometric.nn import TransformerConv, global_mean_pool
 
 from app.core.config import ForwardModelSettings
 from app.core.errors import ModelErrorCode, ModelRuntimeError
 from app.model_runtime.graph_builder import (
-    EXPECTED_CHIP_COUNT,
     EXPECTED_CHIP_PHYSICS_DIM,
     EXPECTED_EDGE_FEATURE_DIM,
     EXPECTED_GLOBAL_FEATURE_DIM,
-    EXPECTED_NODE_COUNT,
     EXPECTED_NODE_FEATURE_DIM,
-    CHIP_NODE_START_INDEX,
+    NODE_TYPE_CHIP,
     safe_torch_load,
 )
 
@@ -117,32 +115,34 @@ class PhysicsGuidedDualTaskGNN(nn.Module):
         return torch.exp(flow_log).clamp_min(FLOW_EPS)
 
     def forward(self, data: Any) -> dict[str, Tensor]:
-        graph_count = int(data.num_graphs)
-        if int(data.x.shape[0]) != graph_count * EXPECTED_NODE_COUNT:
-            raise RuntimeError("Each graph must contain exactly 8 nodes.")
+        if not hasattr(data, "batch"):
+            raise RuntimeError("Dynamic forward prediction requires a PyG Batch.")
+        if not hasattr(data, "node_type"):
+            raise RuntimeError("Graph data is missing node_type.")
 
-        node_x = data.x.reshape(graph_count, EXPECTED_NODE_COUNT, self.in_channels)
-        chip_physics_z = data.chip_physics_z.reshape(
-            graph_count,
-            EXPECTED_CHIP_COUNT,
-            EXPECTED_CHIP_PHYSICS_DIM,
-        )
-        chip_physics_raw = data.chip_physics.reshape(
-            graph_count,
-            EXPECTED_CHIP_COUNT,
-            EXPECTED_CHIP_PHYSICS_DIM,
-        )
+        node_type = data.node_type.reshape(-1).long()
+        if node_type.numel() != data.x.shape[0]:
+            raise RuntimeError("node_type length does not match node count.")
+
+        chip_mask = node_type == NODE_TYPE_CHIP
+        chip_count_total = int(chip_mask.sum().item())
+        if chip_count_total <= 0:
+            raise RuntimeError("Graph contains no chip nodes.")
+
+        chip_physics_z = data.chip_physics_z.reshape(-1, EXPECTED_CHIP_PHYSICS_DIM)
+        chip_physics_raw = data.chip_physics.reshape(-1, EXPECTED_CHIP_PHYSICS_DIM)
+        if chip_physics_z.shape[0] != chip_count_total:
+            raise RuntimeError("chip_physics_z row count does not match chip node count.")
+        if chip_physics_raw.shape[0] != chip_count_total:
+            raise RuntimeError("chip_physics row count does not match chip node count.")
 
         physics_for_nodes = torch.zeros(
-            (graph_count, EXPECTED_NODE_COUNT, EXPECTED_CHIP_PHYSICS_DIM),
-            dtype=node_x.dtype,
-            device=node_x.device,
+            (data.x.shape[0], EXPECTED_CHIP_PHYSICS_DIM),
+            dtype=data.x.dtype,
+            device=data.x.device,
         )
-        physics_for_nodes[:, CHIP_NODE_START_INDEX:, :] = chip_physics_z
-        node_input = torch.cat([node_x, physics_for_nodes], dim=2).reshape(
-            graph_count * EXPECTED_NODE_COUNT,
-            -1,
-        )
+        physics_for_nodes[chip_mask] = chip_physics_z
+        node_input = torch.cat([data.x, physics_for_nodes], dim=1)
 
         hidden = F.gelu(self.input_projection(node_input))
         for conv, norm in zip(self.convs, self.norms):
@@ -151,25 +151,27 @@ class PhysicsGuidedDualTaskGNN(nn.Module):
             message = self.dropout(F.gelu(norm(message)))
             hidden = residual + message
 
-        node_hidden = hidden.reshape(graph_count, EXPECTED_NODE_COUNT, self.hidden_channels)
-        chip_hidden = node_hidden[:, CHIP_NODE_START_INDEX:, :]
-        graph_context = node_hidden.mean(dim=1, keepdim=True).expand(-1, EXPECTED_CHIP_COUNT, -1)
+        chip_hidden = hidden[chip_mask]
+        chip_batch = data.batch[chip_mask]
+        graph_hidden = global_mean_pool(hidden, data.batch)
+        graph_context = graph_hidden[chip_batch]
+        graph_count = int(data.num_graphs)
         raw_u = self.recover_raw_u(data.u.reshape(graph_count, -1))
-        u_context = raw_u.unsqueeze(1).expand(-1, EXPECTED_CHIP_COUNT, -1)
-        context = torch.cat([chip_hidden, graph_context, chip_physics_z, u_context], dim=2)
+        u_context = raw_u[chip_batch]
+        context = torch.cat([chip_hidden, graph_context, chip_physics_z, u_context], dim=1)
 
         width_weight = F.softplus(self.raw_width_ratio_weight)
         distance_weight = F.softplus(self.raw_distance_ratio_weight)
         local_logit = (
             self.local_concentration_bias
-            + width_weight * chip_physics_raw[:, :, 0]
-            + distance_weight * chip_physics_raw[:, :, 4]
+            + width_weight * chip_physics_raw[:, 0]
+            + distance_weight * chip_physics_raw[:, 4]
         )
         correction = self.concentration_correction_head(context).squeeze(-1)
         gate = torch.sigmoid(self.concentration_global_gate)
         alpha = torch.sigmoid(local_logit + gate * correction)
-        inlet1 = raw_u[:, 0:1]
-        inlet2 = raw_u[:, 1:2]
+        inlet1 = raw_u[chip_batch, 0]
+        inlet2 = raw_u[chip_batch, 1]
         concentration = inlet2 + alpha * (inlet1 - inlet2)
 
         flow_log_z = self.flow_head(context).squeeze(-1)
@@ -180,6 +182,7 @@ class PhysicsGuidedDualTaskGNN(nn.Module):
             "flow": flow,
             "mixing_fraction": alpha,
             "raw_u": raw_u,
+            "chip_batch": chip_batch,
         }
 
 

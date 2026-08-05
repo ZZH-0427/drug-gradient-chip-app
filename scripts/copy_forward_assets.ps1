@@ -96,8 +96,11 @@ $manifest = [ordered]@{
     checkpoint_file = "best_concentration_checkpoint.pt"
     checkpoint_sha256 = Get-Sha256 -Path $checkpointPath
     checkpoint_size_bytes = $checkpoint.Length
-    supported_forward_chip_counts = @(6)
+    supported_forward_chip_counts = @(4, 5, 6, 7, 8, 9, 10)
     supported_reverse_chip_counts = @(6)
+    forward_graph_mode = "dynamic"
+    training_chip_count = 6
+    scale_extension = "zero_shot"
     public_forward_output = "concentration_only"
     internal_outputs = @("concentration", "flow")
 }
