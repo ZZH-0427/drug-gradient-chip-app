@@ -14,13 +14,14 @@ import { ForwardPage } from "./ForwardPage";
 const statusReady = {
   ready: true,
   model_name: "physics-gnn",
-  supported_chip_counts: [6],
+  supported_chip_counts: [4, 5, 6, 7, 8, 9, 10],
   public_output: "concentration",
   device: "cpu",
   forward: {
     ready: true,
-    supported_chip_counts: [6],
+    supported_chip_counts: [4, 5, 6, 7, 8, 9, 10],
     output: "concentration",
+    execution_mode: "sync",
   },
   reverse: {
     ready: true,
@@ -34,7 +35,7 @@ function successPayload(length = 6) {
   return {
     sample_name: "DP 0",
     inlets: { inlet1: 1, inlet2: 0 },
-    chip_count: 6,
+    chip_count: length,
     predictions: Array.from({ length }, (_, index) => ({
       position: index + 1,
       point: `y${index + 1}`,
@@ -56,7 +57,7 @@ afterEach(() => {
 });
 
 describe("Forward localized chip-count form", () => {
-  it("renders default Chinese six-chip form, strict 4 through 8 options, and P1 through P12", async () => {
+  it("renders default Chinese six-chip form, strict 4 through 10 options, and P1 through P12", async () => {
     mockFetch(jsonResponse(statusReady));
     renderForwardPage();
 
@@ -75,7 +76,7 @@ describe("Forward localized chip-count form", () => {
     }
 
     const options = within(chipCountSelect()).getAllByRole("option");
-    expect(options.map((option) => option.textContent)).toEqual(["4", "5", "6", "7", "8"]);
+    expect(options.map((option) => option.textContent)).toEqual(["4", "5", "6", "7", "8", "9", "10"]);
   });
 
   it("switches core fields to English without clearing chip_count or modified inputs", async () => {
@@ -371,18 +372,20 @@ describe("Forward localized workflow interactions", () => {
     expect(request.inlet2).toBe(1);
   });
 
-  it.each(["4", "5", "7", "8"])("allows confirming chip_count=%s but blocks prediction before API call", async (count) => {
+  it.each(["4", "5", "7", "8", "9", "10"])("submits chip_count=%s to the forward API", async (count) => {
     const user = userEvent.setup();
-    const fetchMock = mockFetch(jsonResponse(statusReady));
+    const fetchMock = mockFetch(jsonResponse(statusReady), jsonResponse(successPayload(Number(count))));
     renderForwardPage();
 
     await user.selectOptions(await screen.findByRole("combobox", { name: "芯片数量" }), count);
     await user.click(confirmButton());
+    await user.click(runButton());
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(runButton()).toBeDisabled();
-    expect(screen.getAllByText(/当前正式模型仅支持 6 个芯片/).length).toBeGreaterThan(0);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const request = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    expect(request.chip_count).toBe(Number(count));
+    expect(request.chips).toHaveLength(Number(count));
+    expect(screen.getByText(`${Number(count) - 1}.123457`)).toBeInTheDocument();
   });
 
   it("submits chip_count=6 once and displays six concentration-only predictions", async () => {
