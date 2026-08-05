@@ -121,14 +121,14 @@ describe("Reverse localized form", () => {
   it.each([
     ["zh-CN", /\[0\.10, 0\.95\]/],
     ["en", /Some target concentrations fall outside the recommended dense training range \[0\.10, 0\.95\]/],
-  ])("allows the official 0.08 target value to submit while showing the %s warning", async (locale, warning) => {
+  ])("allows the official 0.08 target value to submit without showing the %s pre-submit warning", async (locale, warning) => {
     const user = userEvent.setup();
     window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     const fetchMock = mockFetch(jsonResponse({ task_id: "task-1", status: "running" }, 202));
     renderReversePage();
 
     expect(screen.getByRole("spinbutton", { name: /y1/ })).toHaveValue(0.08);
-    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
     expect(startReverseButton()).toBeEnabled();
     await user.click(startReverseButton());
 
