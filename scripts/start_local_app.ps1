@@ -13,7 +13,8 @@ param(
     [switch]$NoBrowser,
     [switch]$Foreground,
     [string]$BrowserCommand = "",
-    [int]$StartupTimeoutSeconds = 90
+    [int]$StartupTimeoutSeconds = 90,
+    [int]$ChildProcessTimeoutSeconds = 120
 )
 
 Set-StrictMode -Version Latest
@@ -29,6 +30,36 @@ function RuntimeReadyMarkerPath([string]$Root) { return Join-Path (Join-Path $Ro
 function Quote-ProcessArgument([string]$Value) {
     if ($Value -notmatch '[\s"]') { return $Value }
     return '"' + ($Value -replace '"', '\"') + '"'
+}
+function InvokeProcessWithTimeout {
+    param(
+        [Parameter(Mandatory = $true)] [string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [string]$WorkingDirectory = "",
+        [int]$TimeoutSeconds = 300,
+        [string]$RedirectStandardOutput = "",
+        [string]$RedirectStandardError = "",
+        [switch]$NoNewWindow
+    )
+    if ($TimeoutSeconds -le 0) { throw "Process timeout must be positive." }
+    $startParams = @{
+        FilePath = $FilePath
+        ArgumentList = $ArgumentList
+        PassThru = $true
+    }
+    if ($WorkingDirectory.Trim()) { $startParams["WorkingDirectory"] = $WorkingDirectory }
+    if ($RedirectStandardOutput.Trim()) { $startParams["RedirectStandardOutput"] = $RedirectStandardOutput }
+    if ($RedirectStandardError.Trim()) { $startParams["RedirectStandardError"] = $RedirectStandardError }
+    if ($NoNewWindow) { $startParams["NoNewWindow"] = $true }
+    $process = Start-Process @startParams
+    $null = $process.Handle
+    if ($process.WaitForExit($TimeoutSeconds * 1000)) {
+        $process.WaitForExit(1000) | Out-Null
+        $process.Refresh()
+        return $process
+    }
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw "Process timed out after ${TimeoutSeconds}s: $FilePath $($ArgumentList -join ' ')"
 }
 function ResolveRuntimeMode([string]$Root, [string]$RequestedMode) {
     if ($RequestedMode -ne "Auto") { return $RequestedMode.ToLowerInvariant() }
@@ -136,7 +167,7 @@ function EnsurePortableRuntimeReady([string]$Root, [string]$LogsDir) {
     $stdoutLog = Join-Path $LogsDir "conda-unpack.stdout.log"
     $stderrLog = Join-Path $LogsDir "conda-unpack.stderr.log"
     Info "Relocating portable runtime for this directory."
-    $process = Start-Process -FilePath $condaUnpack -WorkingDirectory $Root -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    $process = InvokeProcessWithTimeout -FilePath $condaUnpack -WorkingDirectory $Root -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
     if ($process.ExitCode -ne 0) {
         ShowCondaUnpackLogTail -StdoutLog $stdoutLog -StderrLog $stderrLog
         throw "Portable runtime relocation failed with exit code $($process.ExitCode)."
@@ -209,11 +240,11 @@ function BuildFrontend([string]$Root, [switch]$Force) {
     if ($null -eq $node -or $null -eq $npm) { throw "Node.js and npm.cmd are required to build frontend." }
     if (-not (Test-Path -LiteralPath (Join-Path $frontend "node_modules"))) {
         Info "Running npm ci."
-        $ci = Start-Process -FilePath $npm.Source -ArgumentList @("ci") -WorkingDirectory $frontend -Wait -PassThru -NoNewWindow
+        $ci = InvokeProcessWithTimeout -FilePath $npm.Source -ArgumentList @("ci") -WorkingDirectory $frontend -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
         if ($ci.ExitCode -ne 0) { throw "npm ci failed." }
     }
     Info "Running npm run build."
-    $build = Start-Process -FilePath $npm.Source -ArgumentList @("run", "build") -WorkingDirectory $frontend -Wait -PassThru -NoNewWindow
+    $build = InvokeProcessWithTimeout -FilePath $npm.Source -ArgumentList @("run", "build") -WorkingDirectory $frontend -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
     if ($build.ExitCode -ne 0) { throw "frontend build failed." }
     $distIndex = Join-Path $frontend "dist\index.html"
     $distAssets = Join-Path $frontend "dist\assets"
@@ -346,7 +377,7 @@ try {
         $python
     )
     $verifyProcessArgs = @($verifyArgs | ForEach-Object { Quote-ProcessArgument -Value $_ })
-    $verify = Start-Process -FilePath "powershell.exe" -ArgumentList $verifyProcessArgs -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    $verify = InvokeProcessWithTimeout -FilePath "powershell.exe" -ArgumentList $verifyProcessArgs -WorkingDirectory $root -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow
     if ($verify.ExitCode -ne 0) { throw "model asset verification failed." }
 
     $stdoutLog = Join-Path $logsDir "backend.stdout.log"
