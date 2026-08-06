@@ -104,7 +104,7 @@ function Test-LocalAppRuntimeIdentity {
     if (-not (Test-Path -LiteralPath $identityFile)) { return $false }
 
     try {
-        $identity = Get-Content -LiteralPath $identityFile -Raw | ConvertFrom-Json
+        $identity = Get-Content -LiteralPath $identityFile -Raw -Encoding UTF8 | ConvertFrom-Json
     } catch {
         return $false
     }
@@ -156,9 +156,13 @@ function Test-LocalAppProcessIdentity {
         return $false
     }
 
+    if (Test-LocalAppRuntimeIdentity -State $State -Root $Root) {
+        return $true
+    }
+
     $commandLine = [string]$ProcessInfo.CommandLine
     if ([string]::IsNullOrWhiteSpace($commandLine)) {
-        return Test-LocalAppRuntimeIdentity -State $State -Root $Root
+        return $false
     } else {
         if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle "-m uvicorn")) { return $false }
         if (-not (Test-LocalAppCommandLineContains -CommandLine $commandLine -Needle ([string]$State.app_module))) { return $false }
@@ -175,7 +179,7 @@ function Test-LocalAppProcessIdentity {
 
 function Read-LocalAppState([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
-    return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
 }
 
 function Write-LocalAppStateAtomically([string]$Path, [object]$Value) {

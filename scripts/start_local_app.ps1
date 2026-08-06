@@ -14,7 +14,8 @@ param(
     [switch]$Foreground,
     [string]$BrowserCommand = "",
     [int]$StartupTimeoutSeconds = 90,
-    [int]$ChildProcessTimeoutSeconds = 120
+    [int]$ChildProcessTimeoutSeconds = 120,
+    [int]$RuntimeRelocationTimeoutSeconds = 600
 )
 
 Set-StrictMode -Version Latest
@@ -24,9 +25,9 @@ function Info([string]$Message) { Write-Host "[info] $Message" }
 function Fail([string]$Message) { Write-Host "[error] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
 . (Join-Path $PSScriptRoot "local_app_lifecycle.ps1")
+. (Join-Path $PSScriptRoot "portable_runtime.ps1")
 function RepoRoot { return Get-LocalAppRepositoryRoot }
 function StatePath([string]$Root) { return Get-LocalAppStatePath -Root $Root }
-function RuntimeReadyMarkerPath([string]$Root) { return Join-Path (Join-Path $Root "runtime") ".conda-unpacked" }
 function Quote-ProcessArgument([string]$Value) {
     if ($Value -notmatch '[\s"]') { return $Value }
     return '"' + ($Value -replace '"', '\"') + '"'
@@ -117,83 +118,6 @@ function ResolvePortablePython([string]$Root) {
     if (-not (Test-Path -LiteralPath $python)) { throw "Portable runtime python.exe was not found: $python" }
     & $python --version | Out-Null
     return $python
-}
-function Write-JsonAtomically([string]$Path, [object]$Value) {
-    $directory = Split-Path -Parent $Path
-    New-Item -ItemType Directory -Force -Path $directory | Out-Null
-    $temp = Join-Path $directory (".tmp-" + [guid]::NewGuid().ToString("N") + ".json")
-    try {
-        $Value | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $temp -Encoding UTF8
-        Move-Item -LiteralPath $temp -Destination $Path -Force
-    } finally {
-        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
-    }
-}
-function ShowCondaUnpackLogTail([string]$StdoutLog, [string]$StderrLog) {
-    try {
-        if (Test-Path -LiteralPath $StderrLog) {
-            $stderr = @(Get-Content -LiteralPath $StderrLog -Tail 30 -ErrorAction SilentlyContinue)
-            if ($stderr.Count -gt 0) {
-                Write-Host "[conda-unpack stderr tail]"
-                $stderr | ForEach-Object { Write-Host $_ }
-            }
-        }
-        if (Test-Path -LiteralPath $StdoutLog) {
-            $stdout = @(Get-Content -LiteralPath $StdoutLog -Tail 30 -ErrorAction SilentlyContinue)
-            if ($stdout.Count -gt 0) {
-                Write-Host "[conda-unpack stdout tail]"
-                $stdout | ForEach-Object { Write-Host $_ }
-            }
-        }
-    } catch {
-        Warn "Could not read conda-unpack logs: $($_.Exception.Message)"
-    }
-}
-function EnsurePortableRuntimeReady([string]$Root, [string]$LogsDir) {
-    $runtimeRoot = (Resolve-Path -LiteralPath (Join-Path $Root "runtime")).Path
-    $applicationRoot = (Resolve-Path -LiteralPath $Root).Path
-    $marker = RuntimeReadyMarkerPath -Root $Root
-    if (Test-Path -LiteralPath $marker) {
-        $payload = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
-        if ([string]$payload.application_root -ne $applicationRoot -or [string]$payload.runtime_root -ne $runtimeRoot) {
-            throw "Portable runtime was already initialized at a different path. Re-extract the original ZIP to the target location instead of moving an initialized directory."
-        }
-        Info "Portable runtime is already relocated."
-        return
-    }
-
-    $condaUnpack = Join-Path $runtimeRoot "Scripts\conda-unpack.exe"
-    if (-not (Test-Path -LiteralPath $condaUnpack)) {
-        throw "Portable runtime relocation tool was not found: $condaUnpack"
-    }
-    $stdoutLog = Join-Path $LogsDir "conda-unpack.stdout.log"
-    $stderrLog = Join-Path $LogsDir "conda-unpack.stderr.log"
-    Info "Relocating portable runtime for this directory."
-    $process = InvokeProcessWithTimeout -FilePath $condaUnpack -WorkingDirectory $Root -TimeoutSeconds $ChildProcessTimeoutSeconds -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-    if ($process.ExitCode -ne 0) {
-        ShowCondaUnpackLogTail -StdoutLog $stdoutLog -StderrLog $stderrLog
-        throw "Portable runtime relocation failed with exit code $($process.ExitCode)."
-    }
-    Remove-EditableAppInstall -RuntimeRoot $runtimeRoot
-    Write-JsonAtomically -Path $marker -Value ([ordered]@{
-        schema_version = 1
-        application_root = $applicationRoot
-        runtime_root = $runtimeRoot
-        completed_at = (Get-Date).ToUniversalTime().ToString("o")
-    })
-    Info "Portable runtime relocation completed."
-}
-function Remove-EditableAppInstall([string]$RuntimeRoot) {
-    $sitePackages = Join-Path $RuntimeRoot "Lib\site-packages"
-    if (-not (Test-Path -LiteralPath $sitePackages)) { return }
-    foreach ($pattern in @(
-        "__editable__.drug_gradient_chip_app-*.pth",
-        "__editable___drug_gradient_chip_app_*.py",
-        "drug_gradient_chip_app-*.dist-info"
-    )) {
-        Get-ChildItem -LiteralPath $sitePackages -Force -Filter $pattern -ErrorAction SilentlyContinue |
-            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }
-    }
 }
 function AssertPortAvailable([string]$BindAddress, [int]$TargetPort, [string]$StateFile, [string]$Root) {
     $state = ReadState -Path $StateFile
@@ -449,7 +373,7 @@ try {
         $env:PYTHONNOUSERSITE = "1"
         $env:PYTHONUTF8 = "1"
         Remove-Item Env:MODEL_SOURCE_ROOT -ErrorAction SilentlyContinue
-        EnsurePortableRuntimeReady -Root $root -LogsDir $logsDir
+        Ensure-PortableRuntimeReady -Root $root -LogsDir $logsDir -TimeoutSeconds $RuntimeRelocationTimeoutSeconds
         $python = ResolvePortablePython -Root $root
         if ($RebuildFrontend) { Warn "-RebuildFrontend is ignored in portable mode." }
     } else {
@@ -503,6 +427,15 @@ try {
         Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
         throw "Could not read Uvicorn process identity after startup."
     }
+    Write-PortableRuntimeJsonAtomically -Path $identityFile -Value ([ordered]@{
+        schema_version = 1
+        pid = $process.Id
+        identity_token = $identityToken
+        application_root = $root
+        app_module = "backend.app.main:app"
+        host = $HostAddress
+        port = [string]$Port
+    })
     $state = [ordered]@{
         schema_version = 1
         pid = $process.Id

@@ -48,3 +48,11 @@ def test_asset_verification_arguments_are_not_prequoted_twice() -> None:
 
     assert '$verify = InvokeProcessWithTimeout -FilePath "powershell.exe" -ArgumentList $verifyArgs' in script
     assert "$verifyProcessArgs" not in script
+
+
+def test_start_script_writes_runtime_identity_from_powershell() -> None:
+    script = (ROOT / "scripts" / "start_local_app.ps1").read_text(encoding="utf-8")
+
+    assert "Write-PortableRuntimeJsonAtomically -Path $identityFile" in script
+    assert "application_root = $root" in script
+    assert "identity_token = $identityToken" in script

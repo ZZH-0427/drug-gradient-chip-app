@@ -11,7 +11,8 @@ param(
     [string]$BuildToolEnvironment = "drug-chip-portable-build",
     [switch]$SkipTests,
     [switch]$NoArchive,
-    [switch]$KeepStaging
+    [switch]$KeepStaging,
+    [switch]$AllowDirty
 )
 
 Set-StrictMode -Version Latest
@@ -567,7 +568,7 @@ try {
     $reportRoot = Join-Path $root ".build\reports"
     $sizeReportPath = Join-Path $reportRoot "$packageName-size-report.json"
 
-    Assert-CleanGit -Root $root
+    if (-not $AllowDirty) { Assert-CleanGit -Root $root }
     Assert-FreeSpace -Path $root -RequiredBytes (8GB)
     New-Item -ItemType Directory -Force -Path $output | Out-Null
     if (Test-Path -LiteralPath $buildRoot) { Remove-Item -LiteralPath $buildRoot -Recurse -Force }
@@ -601,7 +602,7 @@ try {
         Copy-DirectoryContents -Source (Join-Path $root $dir) -Destination (Join-Path $stageRoot $dir)
     }
     New-Item -ItemType Directory -Force -Path (Join-Path $stageRoot "scripts") | Out-Null
-    foreach ($script in @("local_app_lifecycle.ps1", "start_local_app.ps1", "status_local_app.ps1", "stop_local_app.ps1", "verify_forward_assets.ps1")) {
+    foreach ($script in @("local_app_lifecycle.ps1", "portable_runtime.ps1", "initialize_installed_runtime.ps1", "start_local_app.ps1", "status_local_app.ps1", "stop_local_app.ps1", "verify_forward_assets.ps1")) {
         Copy-Item -LiteralPath (Join-Path $root "scripts\$script") -Destination (Join-Path $stageRoot "scripts\$script") -Force
     }
     foreach ($file in @("start_app.cmd", "status_app.cmd", "stop_app.cmd")) {

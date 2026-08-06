@@ -102,6 +102,90 @@ Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $proc
     assert run_powershell(script, tmp_path) == "True"
 
 
+def test_lifecycle_identity_reads_utf8_no_bom_chinese_identity_file(
+    tmp_path: Path,
+) -> None:
+    identity_file = tmp_path / "app-process-identity.json"
+    identity_file.write_text(
+        """
+{
+  "schema_version": 1,
+  "pid": 1234,
+  "identity_token": "token-1",
+  "application_root": "D:\\\\安装版 Drug Gradient Chip rc7 中文",
+  "app_module": "backend.app.main:app",
+  "host": "127.0.0.1",
+  "port": "8000"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    script = f"""
+. "{COMMON_SCRIPT}"
+$identityFile = "{identity_file}"
+$root = [string]((Get-Content -LiteralPath $identityFile -Raw -Encoding UTF8 | ConvertFrom-Json).application_root)
+$state = [pscustomobject]@{{
+  pid = 1234
+  process_start_time_utc = "2026-07-27T04:00:00.0000000Z"
+  executable_path = "D:\\Tools\\python.exe"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = 8000
+  identity_file = $identityFile
+  identity_token = "token-1"
+}}
+$proc = [pscustomobject]@{{
+  ProcessId = 1234
+  CreationTimeUtc = "2026-07-27T04:00:00.5000000Z"
+  ExecutablePath = "D:\\Tools\\python.exe"
+  CommandLine = ""
+}}
+Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $proc
+"""
+
+    assert run_powershell(script, tmp_path) == "True"
+
+
+def test_lifecycle_identity_prefers_matching_runtime_identity_over_command_line(
+    tmp_path: Path,
+) -> None:
+    identity_file = tmp_path / "app-process-identity.json"
+    script = f"""
+. "{COMMON_SCRIPT}"
+$root = "D:\\App"
+@{{
+  schema_version = 1
+  pid = 1234
+  identity_token = "token-1"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = "8000"
+}} | ConvertTo-Json | Set-Content -LiteralPath "{identity_file}" -Encoding UTF8
+$state = [pscustomobject]@{{
+  pid = 1234
+  process_start_time_utc = "2026-07-27T04:00:00.0000000Z"
+  executable_path = "D:\\Tools\\python.exe"
+  application_root = $root
+  app_module = "backend.app.main:app"
+  host = "127.0.0.1"
+  port = 8000
+  identity_file = "{identity_file}"
+  identity_token = "token-1"
+}}
+$proc = [pscustomobject]@{{
+  ProcessId = 1234
+  CreationTimeUtc = "2026-07-27T04:00:00.5000000Z"
+  ExecutablePath = "D:\\Tools\\python.exe"
+  CommandLine = '"D:\\Tools\\python.exe" -m uvicorn backend.app.main:app --app-dir D:\\MojibakePath --host 127.0.0.1 --port 8000'
+}}
+Test-LocalAppProcessIdentity -State $state -Root $root -ProcessInfo $proc
+"""
+
+    assert run_powershell(script, tmp_path) == "True"
+
+
 def test_lifecycle_identity_rejects_empty_command_line_without_runtime_identity(
     tmp_path: Path,
 ) -> None:
