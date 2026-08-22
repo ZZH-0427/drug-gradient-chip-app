@@ -161,15 +161,19 @@ function Ensure-PortableRuntimeReady {
             Write-PortableRuntimeInfo "Portable runtime is already relocated."
             return
         }
-        $condaUnpack = Join-Path $runtimeRoot "Scripts\conda-unpack.exe"
-        if (-not (Test-Path -LiteralPath $condaUnpack)) {
-            throw "Portable runtime relocation tool was not found: $condaUnpack"
+        $runtimePython = Join-Path $runtimeRoot "python.exe"
+        $condaUnpackScript = Join-Path $runtimeRoot "Scripts\conda-unpack-script.py"
+        if (-not (Test-Path -LiteralPath $runtimePython)) {
+            throw "Portable runtime Python was not found: $runtimePython"
+        }
+        if (-not (Test-Path -LiteralPath $condaUnpackScript)) {
+            throw "Portable runtime relocation script was not found: $condaUnpackScript"
         }
         $stdoutLog = Join-Path $LogsDir "conda-unpack.stdout.log"
         $stderrLog = Join-Path $LogsDir "conda-unpack.stderr.log"
         Write-PortableRuntimeInfo "Drug Gradient Chip is preparing its local runtime for first use. This may take several minutes."
         Write-PortableRuntimeInfo "Relocating portable runtime for this directory."
-        $process = Invoke-PortableRuntimeProcessWithTimeout -FilePath $condaUnpack -WorkingDirectory $Root -TimeoutSeconds $TimeoutSeconds -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+        $process = Invoke-PortableRuntimeProcessWithTimeout -FilePath $runtimePython -ArgumentList @($condaUnpackScript) -WorkingDirectory $Root -TimeoutSeconds $TimeoutSeconds -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
         if ($process.ExitCode -ne 0) {
             Show-PortableRuntimeCondaUnpackLogTail -StdoutLog $stdoutLog -StderrLog $stderrLog
             throw "Portable runtime relocation failed with exit code $($process.ExitCode)."

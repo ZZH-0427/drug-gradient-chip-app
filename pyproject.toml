@@ -12,6 +12,7 @@ dependencies = [
   "numpy",
   "pandas",
   "pydantic",
+  "pywebview==6.2.1",
   "torch",
   "torch-geometric",
   "uvicorn",

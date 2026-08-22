@@ -77,6 +77,54 @@ def _windows_process_exists(pid: int) -> bool:
             return False
 
 
+def _terminate_windows_process(pid: int) -> None:
+    try:
+        import ctypes
+
+        process_terminate = 0x0001
+        handle = ctypes.windll.kernel32.OpenProcess(process_terminate, False, int(pid))
+        if handle:
+            try:
+                ctypes.windll.kernel32.TerminateProcess(handle, 1)
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+    except Exception:
+        return
+
+
+def wait_for_process_exit(pid: int, timeout_seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not process_exists(pid):
+            return True
+        time.sleep(0.1)
+    return not process_exists(pid)
+
+
+def terminate_worker_process(pid: int) -> None:
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+            timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if not wait_for_process_exit(pid):
+            _terminate_windows_process(pid)
+            wait_for_process_exit(pid, timeout_seconds=2.0)
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return
+    if not wait_for_process_exit(pid):
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            return
+
+
 def reverse_worker_popen_options(
     *,
     cwd: str,
@@ -191,7 +239,7 @@ class ReverseTaskManager:
             raise RuntimeError("not_cancellable")
         pid = state.get("pid")
         if isinstance(pid, int):
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+            terminate_worker_process(pid)
         state["status"] = "cancelled"
         state["finished_at"] = utc_now()
         state["elapsed_seconds"] = self._elapsed(state)
@@ -237,7 +285,7 @@ class ReverseTaskManager:
         if self._elapsed(state) is not None and self._elapsed(state) > self.timeout_seconds:
             pid = state.get("pid")
             if isinstance(pid, int):
-                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+                terminate_worker_process(pid)
             state["status"] = "failed"
             state["finished_at"] = utc_now()
             state["elapsed_seconds"] = self._elapsed(state)

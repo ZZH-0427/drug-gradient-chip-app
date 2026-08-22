@@ -40,6 +40,39 @@ function Resolve-Iscc {
     }
     throw "ISCC.exe was not found. Set ISCC_PATH, add ISCC.exe to PATH, or install Inno Setup 6."
 }
+function Resolve-WebView2Installer {
+    if (-not $env:WEBVIEW2_INSTALLER_PATH -or -not $env:WEBVIEW2_INSTALLER_PATH.Trim()) {
+        throw "WEBVIEW2_INSTALLER_PATH must point to the official Microsoft Edge WebView2 x64 Evergreen Standalone Installer."
+    }
+    $path = (Resolve-Path -LiteralPath $env:WEBVIEW2_INSTALLER_PATH).Path
+    $item = Get-Item -LiteralPath $path
+    if ($item.Name -notmatch "X64|x64") {
+        throw "WebView2 installer file name must indicate x64 architecture: $path"
+    }
+    if ($item.Length -lt 100MB) {
+        throw "WebView2 installer is too small for the Evergreen Standalone Installer and is likely a bootstrapper: $path"
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath $path
+    if ($signature.Status -ne "Valid") {
+        throw "WebView2 installer signature is not valid: $($signature.Status)"
+    }
+    if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch "Microsoft Corporation") {
+        throw "WebView2 installer is not signed by Microsoft Corporation."
+    }
+    $version = (Get-Item -LiteralPath $path).VersionInfo
+    $sha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    Info "WebView2 installer: $path"
+    Info "WebView2 installer size: $($item.Length)"
+    Info "WebView2 installer SHA256: $sha"
+    Info "WebView2 installer version: $($version.FileVersion)"
+    return [pscustomobject]@{
+        Path = $path
+        Size = $item.Length
+        Sha256 = $sha
+        FileVersion = $version.FileVersion
+        ProductVersion = $version.ProductVersion
+    }
+}
 function New-AppIcon([string]$Path) {
     Add-Type -AssemblyName System.Drawing
     $bitmap = [System.Drawing.Bitmap]::new(64, 64)
@@ -102,6 +135,7 @@ try {
     New-Item -ItemType Directory -Force -Path $output | Out-Null
 
     $iscc = Resolve-Iscc
+    $webView2Installer = Resolve-WebView2Installer
     $commit = Get-CommandOutput -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $root
     $branch = Get-CommandOutput -FilePath "git" -Arguments @("branch", "--show-current") -WorkingDirectory $root
     $buildRoot = Join-Path $root ".build\installer"
@@ -139,6 +173,7 @@ try {
     New-Item -ItemType Directory -Force -Path $resources | Out-Null
     Copy-Item -LiteralPath (Join-Path $root "launcher.pyw") -Destination (Join-Path $stageRoot "launcher.pyw") -Force
     Copy-Item -LiteralPath (Join-Path $root "stopper.pyw") -Destination (Join-Path $stageRoot "stopper.pyw") -Force
+    Copy-Item -LiteralPath (Join-Path $root "desktop_shell.py") -Destination (Join-Path $stageRoot "desktop_shell.py") -Force
     $iconPath = Join-Path $resources "drug-gradient-chip.ico"
     New-AppIcon -Path $iconPath
 
@@ -150,6 +185,10 @@ try {
     $buildInfo | Add-Member -NotePropertyName product_feature_baseline -NotePropertyValue $commit -Force
     $buildInfo | Add-Member -NotePropertyName builder_commit -NotePropertyValue $commit -Force
     $buildInfo | Add-Member -NotePropertyName windows_installer -NotePropertyValue $true -Force
+    $buildInfo | Add-Member -NotePropertyName webview2_installer_embedded -NotePropertyValue $true -Force
+    $buildInfo | Add-Member -NotePropertyName webview2_installer_size -NotePropertyValue $webView2Installer.Size -Force
+    $buildInfo | Add-Member -NotePropertyName webview2_installer_sha256 -NotePropertyValue $webView2Installer.Sha256 -Force
+    $buildInfo | Add-Member -NotePropertyName webview2_installer_file_version -NotePropertyValue $webView2Installer.FileVersion -Force
     $buildInfo | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $buildInfoPath -Encoding UTF8
     Add-Content -LiteralPath (Join-Path $stageRoot "TEST_BUILD_INFO.txt") -Encoding UTF8 -Value @"
 Installer: DrugGradientChip-Setup-$Version-Windows-x64.exe
@@ -157,6 +196,10 @@ Installer builder script: scripts/build_windows_installer.ps1
 Source branch: $branch
 Source commit: $commit
 Product feature baseline: $commit
+WebView2 installer embedded: yes
+WebView2 installer size: $($webView2Installer.Size)
+WebView2 installer SHA256: $($webView2Installer.Sha256)
+WebView2 installer file version: $($webView2Installer.FileVersion)
 "@
 
     New-ZipArchive -SourceRoot $stageRoot -ZipPath $portableZip -TopLevelName $portableName
@@ -168,10 +211,11 @@ Product feature baseline: $commit
     $env:DGC_OUTPUT_DIR = $output
     $env:DGC_OUTPUT_BASE_FILENAME = "DrugGradientChip-Setup-$Version-Windows-x64"
     $env:DGC_APP_ICON = $iconPath
+    $env:DGC_WEBVIEW2_INSTALLER = $webView2Installer.Path
     try {
         Invoke-Checked -FilePath $iscc -Arguments @((Join-Path $root "installer\windows\DrugGradientChip.iss")) -WorkingDirectory $root
     } finally {
-        foreach ($name in "DGC_APP_VERSION", "DGC_PACKAGE_ROOT", "DGC_OUTPUT_DIR", "DGC_OUTPUT_BASE_FILENAME", "DGC_APP_ICON") {
+        foreach ($name in "DGC_APP_VERSION", "DGC_PACKAGE_ROOT", "DGC_OUTPUT_DIR", "DGC_OUTPUT_BASE_FILENAME", "DGC_APP_ICON", "DGC_WEBVIEW2_INSTALLER") {
             Remove-Item "Env:$name" -ErrorAction SilentlyContinue
         }
     }

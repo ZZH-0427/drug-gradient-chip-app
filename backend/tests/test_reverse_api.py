@@ -356,6 +356,34 @@ def test_reverse_worker_uses_hidden_windows_process_options_and_tracks_pid(
     assert startupinfo.wShowWindow == reverse_tasks.subprocess.SW_HIDE
 
 
+def test_terminate_worker_process_uses_hidden_taskkill_and_waits_on_windows(
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+    waits: list[float] = []
+
+    def fake_run(args: list[str], **kwargs: Any) -> object:
+        calls.append({"args": args, "kwargs": kwargs})
+        return object()
+
+    def fake_wait(pid: int, timeout_seconds: float = 5.0) -> bool:
+        assert pid == 12345
+        waits.append(timeout_seconds)
+        return True
+
+    monkeypatch.setattr(reverse_tasks.sys, "platform", "win32")
+    monkeypatch.setattr(reverse_tasks.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(reverse_tasks.subprocess, "run", fake_run)
+    monkeypatch.setattr(reverse_tasks, "wait_for_process_exit", fake_wait)
+
+    reverse_tasks.terminate_worker_process(12345)
+
+    assert calls[0]["args"] == ["taskkill", "/PID", "12345", "/T", "/F"]
+    assert calls[0]["kwargs"]["creationflags"] & reverse_tasks.subprocess.CREATE_NO_WINDOW
+    assert calls[0]["kwargs"]["timeout"] == 10
+    assert waits == [5.0]
+
+
 def write_state(root: Path, task_id: str, state: dict[str, object]) -> None:
     task_dir = root / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
