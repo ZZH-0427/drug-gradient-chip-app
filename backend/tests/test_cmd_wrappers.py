@@ -12,18 +12,28 @@ def test_start_wrapper_preserves_powershell_exit_code_without_pause() -> None:
     script = _read_wrapper("start_app.cmd")
 
     assert "scripts\\start_local_app.ps1" in script
+    assert "runtime\\pythonw.exe" in script
+    assert "launcher.pyw" in script
+    assert 'if /I "%~1"=="-NoBrowser" goto lifecycle' in script
     assert "set \"EXIT_CODE=%ERRORLEVEL%\"" in script
     assert "exit /b %EXIT_CODE%" in script
     assert "pause" not in script.lower()
 
 
 def test_lifecycle_wrappers_do_not_pause_automation_on_failure() -> None:
-    for name in ("status_app.cmd", "stop_app.cmd"):
+    for name in ("browser_app.cmd", "status_app.cmd", "stop_app.cmd"):
         script = _read_wrapper(name)
 
         assert "set \"EXIT_CODE=%ERRORLEVEL%\"" in script
         assert "exit /b %EXIT_CODE%" in script
         assert "pause" not in script.lower()
+
+
+def test_browser_mode_wrapper_routes_through_launcher_flag() -> None:
+    script = _read_wrapper("browser_app.cmd")
+
+    assert "launcher.pyw\" --browser-mode" in script
+    assert "scripts\\start_local_app.ps1" in script
 
 
 def test_start_script_launches_background_uvicorn_detached() -> None:
@@ -56,3 +66,13 @@ def test_start_script_writes_runtime_identity_from_powershell() -> None:
     assert "Write-PortableRuntimeJsonAtomically -Path $identityFile" in script
     assert "application_root = $root" in script
     assert "identity_token = $identityToken" in script
+
+
+def test_stop_script_cleans_reverse_workers_even_for_stale_app_state() -> None:
+    script = (ROOT / "scripts" / "stop_local_app.ps1").read_text(encoding="utf-8")
+
+    assert "Stop-ReverseWorkers -Root $root" in script
+    assert "Stale PID found; state file removed." in script
+    assert "runtime\\python.exe" in script
+    assert "reverse_tasks" in script
+    assert "Stopping reverse worker PID $workerPid from task state." in script

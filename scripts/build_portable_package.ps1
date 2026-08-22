@@ -176,8 +176,22 @@ function Remove-GeneratedCaches([string]$Root) {
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
 }
 
+function Remove-WindowsPythonScriptShebangDevPaths([string]$PackageRoot) {
+    $scriptsRoot = Join-Path $PackageRoot "runtime\Scripts"
+    if (-not (Test-Path -LiteralPath $scriptsRoot)) { return }
+    foreach ($script in Get-ChildItem -LiteralPath $scriptsRoot -Force -File -Filter "*.py" -ErrorAction SilentlyContinue) {
+        $lines = @(Get-Content -LiteralPath $script.FullName -ErrorAction SilentlyContinue)
+        if ($lines.Count -eq 0) { continue }
+        if ($lines[0] -match "^#![A-Za-z]:[\\/].*python(?:\.exe)?\s*$") {
+            $lines[0] = "#!python.exe"
+            Set-Content -LiteralPath $script.FullName -Value $lines -Encoding UTF8
+        }
+    }
+}
+
 function Remove-ReleaseJunk([string]$PackageRoot) {
     Remove-GeneratedCaches -Root $PackageRoot
+    Remove-WindowsPythonScriptShebangDevPaths -PackageRoot $PackageRoot
     foreach ($relative in @(
         ".runtime",
         ".git",
@@ -218,7 +232,7 @@ function Get-CoreVersions([string]$Python, [string]$Root) {
 import importlib.metadata as m
 import json
 items = {}
-for name in ["torch", "torch-geometric", "fastapi", "uvicorn"]:
+for name in ["torch", "torch-geometric", "fastapi", "uvicorn", "pywebview", "pythonnet"]:
     try:
         items[name] = m.version(name)
     except m.PackageNotFoundError:
@@ -605,8 +619,14 @@ try {
     foreach ($script in @("local_app_lifecycle.ps1", "portable_runtime.ps1", "initialize_installed_runtime.ps1", "start_local_app.ps1", "status_local_app.ps1", "stop_local_app.ps1", "verify_forward_assets.ps1")) {
         Copy-Item -LiteralPath (Join-Path $root "scripts\$script") -Destination (Join-Path $stageRoot "scripts\$script") -Force
     }
-    foreach ($file in @("start_app.cmd", "status_app.cmd", "stop_app.cmd")) {
+    foreach ($file in @("start_app.cmd", "browser_app.cmd", "status_app.cmd", "stop_app.cmd")) {
         Copy-Item -LiteralPath (Join-Path $root $file) -Destination (Join-Path $stageRoot $file) -Force
+    }
+    foreach ($file in @("launcher.pyw", "desktop_shell.py", "stopper.pyw")) {
+        $source = Join-Path $root $file
+        if (Test-Path -LiteralPath $source) {
+            Copy-Item -LiteralPath $source -Destination (Join-Path $stageRoot $file) -Force
+        }
     }
     Write-Text -Path (Join-Path $stageRoot "VERSION") -Text $appVersion
     if (Test-Path -LiteralPath (Join-Path $root "backend\__init__.py")) {
@@ -672,6 +692,13 @@ with tarfile.open(archive, "r:gz") as handle:
         torch_geometric_version = $coreVersions."torch-geometric"
         fastapi_version = $coreVersions.fastapi
         uvicorn_version = $coreVersions.uvicorn
+        default_launch_mode = "desktop-shell"
+        browser_mode_available = $true
+        desktop_shell = "pywebview"
+        desktop_shell_renderer = "edgechromium"
+        pywebview_version = $coreVersions.pywebview
+        pythonnet_version = $coreVersions.pythonnet
+        webview2_strategy = "Setup embeds the official Microsoft Edge WebView2 Evergreen Standalone Installer. Portable ZIP uses the system WebView2 Runtime and Browser Mode fallback."
         model = "PhysicsGuidedDualTaskGNN"
         model_seed = 44
         checkpoint_file = "best_concentration_checkpoint.pt"
@@ -710,6 +737,13 @@ Interface languages: [zh-CN,en]
 Torch version: $($coreVersions.torch)
 Torch CUDA build: $($coreVersions.torch_cuda)
 Torch Geometric version: $($coreVersions."torch-geometric")
+Default launch mode: desktop-shell
+Browser Mode available: yes
+Desktop shell: pywebview
+Desktop renderer: edgechromium
+pywebview version: $($coreVersions.pywebview)
+pythonnet version: $($coreVersions.pythonnet)
+WebView2 strategy: Setup embeds the official Microsoft Edge WebView2 Evergreen Standalone Installer. Portable ZIP uses the system WebView2 Runtime and Browser Mode fallback.
 "@
     Write-Text -Path (Join-Path $stageRoot "README.txt") -Text @"
 Drug Concentration Gradient Chip Prediction System
@@ -756,6 +790,10 @@ Reverse Prediction usually takes tens of seconds, and only one reverse task can 
 Reverse results are screened by the Physics-GNN surrogate model only; final structures still require independent Fluent/CFD verification.
 Default URL: http://127.0.0.1:8000.
 Python, Conda, Node.js, and npm are not required. Internet access is not required.
+Default launch mode: start_app.cmd opens the desktop window.
+Browser Mode: browser_app.cmd opens the local app in the system browser.
+Setup includes the official Microsoft Edge WebView2 Evergreen Standalone Installer for offline recovery.
+Portable ZIP does not include the WebView2 installer. If WebView2 Runtime is missing, use Browser Mode or install WebView2 Runtime.
 
 Portable runtime note
 ---------------------

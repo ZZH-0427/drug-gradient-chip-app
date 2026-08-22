@@ -6,25 +6,30 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_launcher_uses_pythonw_safe_hidden_powershell() -> None:
+def test_launcher_defaults_to_desktop_shell_and_keeps_browser_mode() -> None:
     script = (ROOT / "launcher.pyw").read_text(encoding="utf-8")
 
-    assert "Path(sys.executable).resolve()" in script
-    assert 'executable.parent.name.lower() == "runtime"' in script
-    assert "start_local_app.ps1" in script
-    assert "RUNTIME_RELOCATION_TIMEOUT_SECONDS = 600" in script
-    assert '"-RuntimeRelocationTimeoutSeconds",' in script
-    assert "STARTUP_TIMEOUT_SECONDS + RUNTIME_RELOCATION_TIMEOUT_SECONDS + 60" in script
-    assert "preparing its local runtime for first use" in script
-    assert '"-RuntimeMode",' in script
-    assert '"Portable",' in script
-    assert '"-HostAddress",' in script
-    assert '"127.0.0.1",' in script
-    assert "creationflags=CREATE_NO_WINDOW" in script
-    assert "shell=False" in script
-    assert "stdout=stdout" in script
-    assert "stderr=stderr" in script
-    assert "LOCALAPPDATA" in script
+    assert "desktop_mode(root, log_dir, forwarded)" in script
+    assert "browser_mode(root, log_dir, forwarded)" in script
+    assert "--browser-mode" in script
+
+
+def test_desktop_shell_uses_pywebview_edge_runtime_and_safe_backend_lifecycle() -> None:
+    script = (ROOT / "desktop_shell.py").read_text(encoding="utf-8")
+
+    assert "import webview" in script
+    assert 'gui="edgechromium"' in script
+    assert "webview2_runtime_version" in script
+    assert "Microsoft Edge WebView2 Runtime was not found" in script
+    assert "send_activation()" in script
+    assert "DesktopIpcServer" in script
+    assert "IPC_PORT = 48731" in script
+    assert "active_reverse_task_exists" in script
+    assert "A reverse prediction task is still running" in script
+    assert "run_stop_script(self.root, self.log_dir)" in script
+    assert "ALLOWED_ORIGIN" in script
+    assert "webbrowser.open(current)" in script
+    assert "js_api" not in script
 
 
 def test_stopper_uses_safe_hidden_process_and_existing_lifecycle() -> None:
@@ -60,6 +65,14 @@ def test_inno_shortcuts_target_packaged_pythonw_launchers() -> None:
     assert "ResultCode <> 0" in script
     assert "Abort;" in script
     assert "Local runtime initialization failed" in script
+    assert "Drug Gradient Chip - Browser Mode" in script
+    assert "MicrosoftEdgeWebView2RuntimeInstallerX64.exe" in script
+    assert "EnsureWebView2Runtime" in script
+    assert "WebView2 Runtime already installed" in script
+    assert "WebView2 Runtime installation failed" in script
+    assert "StopExistingApplication" in script
+    assert "CurStep = ssInstall" in script
+    assert 'stopper.pyw' in script
 
 
 def test_installer_build_script_resolves_iscc_without_hardcoded_single_path() -> None:
@@ -68,6 +81,14 @@ def test_installer_build_script_resolves_iscc_without_hardcoded_single_path() ->
     )
 
     assert "ISCC_PATH" in script
+    assert "WEBVIEW2_INSTALLER_PATH" in script
+    assert "Resolve-WebView2Installer" in script
+    assert "WebView2 installer is too small" in script
+    assert "Get-AuthenticodeSignature" in script
+    assert "Microsoft Corporation" in script
+    assert "webview2_installer_sha256" in script
+    assert "webview2_installer_size" in script
+    assert "webview2_installer_file_version" in script
     assert "Get-Command ISCC.exe" in script
     assert "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe" in script
     assert "${env:ProgramFiles}\\Inno Setup 6\\ISCC.exe" in script
@@ -82,6 +103,13 @@ def test_installer_package_includes_shared_runtime_initialization_scripts() -> N
 
     assert '"portable_runtime.ps1"' in script
     assert '"initialize_installed_runtime.ps1"' in script
+    assert '"browser_app.cmd"' in script
+    assert '"desktop_shell.py"' in script
+    assert "default_launch_mode = \"desktop-shell\"" in script
+    assert "desktop_shell_renderer = \"edgechromium\"" in script
+    assert "pywebview_version = $coreVersions.pywebview" in script
+    assert "Remove-WindowsPythonScriptShebangDevPaths" in script
+    assert "#!python.exe" in script
 
 
 def test_start_script_uses_runtime_relocation_timeout_not_child_timeout() -> None:
@@ -98,6 +126,9 @@ def test_shared_runtime_initializer_uses_lock_marker_and_no_120s_timeout() -> No
     assert "Get-PortableRuntimeLockPath" in script
     assert "Invoke-PortableRuntimeWithLock" in script
     assert "TimeoutSeconds = 600" in script
+    assert 'Scripts\\conda-unpack-script.py' in script
+    assert '"python.exe"' in script
+    assert "Invoke-PortableRuntimeProcessWithTimeout -FilePath $runtimePython" in script
     assert "Write-PortableRuntimeJsonAtomically -Path $marker" in script
     assert "Portable runtime is already relocated." in script
     assert "Process timed out after ${TimeoutSeconds}s" in script

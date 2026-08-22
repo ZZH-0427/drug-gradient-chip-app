@@ -125,6 +125,26 @@ Lifecycle scripts identify the project Uvicorn process by PID, process start
 time, executable path, app module, host, port, and `--app-dir`. Stop also cleans
 reverse worker processes that match this project root.
 
+## Windows Desktop Shell
+
+Packaged Windows builds start in desktop-window mode through `launcher.pyw` and
+`pywebview==6.2.1` using the Edge WebView2 renderer. `start_app.cmd` launches the
+desktop shell, while `browser_app.cmd` keeps a Browser Mode fallback that opens
+the same local single-port app in the system browser.
+
+Setup builds embed the official Microsoft Edge WebView2 x64 Evergreen Standalone
+Installer from `WEBVIEW2_INSTALLER_PATH`. The build script verifies that input is
+a Microsoft-signed x64 standalone installer and records its size, SHA-256, and
+file version in package metadata. Portable ZIP builds do not embed WebView2; if
+the target machine lacks WebView2 Runtime, desktop mode reports the issue and
+Browser Mode remains available.
+
+The desktop shell keeps the backend lifecycle in the existing scripts, starts
+subprocesses without visible console windows, restricts the main window to
+`http://127.0.0.1:8000`, opens external links in the system browser, uses a
+loopback single-instance activation socket, and asks for confirmation before
+closing while a reverse task is running.
+
 ## Development Checks
 
 Backend:
