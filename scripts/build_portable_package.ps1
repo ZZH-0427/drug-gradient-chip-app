@@ -589,6 +589,7 @@ try {
     New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
 
     $appPython = Get-CondaPython -Name $runtimeEnvironment
+    $testPython = Get-CondaPython -Name $CondaEnvironment
     $buildPython = Get-CondaPython -Name $BuildToolEnvironment
     $conda = Get-CondaCommand
     $commit = Get-CommandOutput -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $root
@@ -605,7 +606,7 @@ try {
 
     if (-not $SkipTests) {
         Run-Checked -FilePath $appPython -Arguments @("-m", "pip", "check") -WorkingDirectory $root
-        Run-Checked -FilePath $appPython -Arguments @("-m", "pytest", "-q", "--basetemp=.pytest_tmp") -WorkingDirectory $root
+        Run-Checked -FilePath $testPython -Arguments @("-m", "pytest", "-q", "--basetemp=.pytest_tmp") -WorkingDirectory $root
     }
     Invoke-FrontendBuild -Root $root -RunChecks:(-not $SkipTests)
 

@@ -128,6 +128,9 @@ def test_shared_runtime_initializer_uses_lock_marker_and_no_120s_timeout() -> No
     assert "TimeoutSeconds = 600" in script
     assert 'Scripts\\conda-unpack-script.py' in script
     assert '"python.exe"' in script
+    assert '$quotedCondaUnpackScript = "`"$condaUnpackScript`""' in script
+    assert "-ArgumentList @($quotedCondaUnpackScript)" in script
+    assert "-ArgumentList @($condaUnpackScript)" not in script
     assert "Invoke-PortableRuntimeProcessWithTimeout -FilePath $runtimePython" in script
     assert "Write-PortableRuntimeJsonAtomically -Path $marker" in script
     assert "Portable runtime is already relocated." in script
@@ -142,3 +145,38 @@ def test_portable_build_requires_clean_git_unless_installer_allows_dirty() -> No
 
     assert "[switch]$AllowDirty" in script
     assert "if (-not $AllowDirty) { Assert-CleanGit -Root $root }" in script
+
+
+def test_portable_build_uses_development_python_for_pytest_only() -> None:
+    script = (ROOT / "scripts" / "build_portable_package.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "$appPython = Get-CondaPython -Name $runtimeEnvironment" in script
+    assert "$testPython = Get-CondaPython -Name $CondaEnvironment" in script
+    assert 'Run-Checked -FilePath $appPython -Arguments @("-m", "pip", "check")' in script
+    assert 'Run-Checked -FilePath $testPython -Arguments @("-m", "pytest", "-q", "--basetemp=.pytest_tmp")' in script
+    assert "Get-CoreVersions -Python $appPython" in script
+    assert 'CPU portable package requires a CPU-only torch build' in script
+    assert 'Run-Checked -FilePath $appPython -Arguments @("-m", "pytest"' not in script
+
+
+def test_installer_build_preserves_source_baseline_and_builder_commits() -> None:
+    script = (ROOT / "scripts" / "build_windows_installer.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert '[string]$SourceCommit = ""' in script
+    assert '[string]$ProductFeatureBaseline = ""' in script
+    assert '$commit = Get-CommandOutput -FilePath "git" -Arguments @("rev-parse", "HEAD")' in script
+    assert "$sourceCommitForPackage = if ($SourceCommit.Trim())" in script
+    assert "$featureBaselineForPackage = if ($ProductFeatureBaseline.Trim())" in script
+    assert '"-SourceCommit", $sourceCommitForPackage' in script
+    assert '"-ProductFeatureBaseline", $featureBaselineForPackage' in script
+    assert "source_commit -NotePropertyValue $sourceCommitForPackage" in script
+    assert "product_feature_baseline -NotePropertyValue $featureBaselineForPackage" in script
+    assert "builder_commit -NotePropertyValue $commit" in script
+    assert "Source commit: $sourceCommitForPackage" in script
+    assert "Product feature baseline: $featureBaselineForPackage" in script
+    assert "Builder commit: $commit" in script
+    assert "product_feature_baseline -NotePropertyValue $commit" not in script
