@@ -128,6 +128,9 @@ def test_shared_runtime_initializer_uses_lock_marker_and_no_120s_timeout() -> No
     assert "TimeoutSeconds = 600" in script
     assert 'Scripts\\conda-unpack-script.py' in script
     assert '"python.exe"' in script
+    assert '$quotedCondaUnpackScript = "`"$condaUnpackScript`""' in script
+    assert "-ArgumentList @($quotedCondaUnpackScript)" in script
+    assert "-ArgumentList @($condaUnpackScript)" not in script
     assert "Invoke-PortableRuntimeProcessWithTimeout -FilePath $runtimePython" in script
     assert "Write-PortableRuntimeJsonAtomically -Path $marker" in script
     assert "Portable runtime is already relocated." in script
