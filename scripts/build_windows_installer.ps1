@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$Version = "0.3.0-rc7",
+    [string]$SourceCommit = "",
+    [string]$ProductFeatureBaseline = "",
     [string]$OutputRoot = "",
     [string]$RuntimeCondaEnvironment = "drug-chip-portable-cpu",
     [string]$BuildToolEnvironment = "drug-chip-portable-build",
@@ -137,6 +139,8 @@ try {
     $iscc = Resolve-Iscc
     $webView2Installer = Resolve-WebView2Installer
     $commit = Get-CommandOutput -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $root
+    $sourceCommitForPackage = if ($SourceCommit.Trim()) { $SourceCommit.Trim() } else { $commit }
+    $featureBaselineForPackage = if ($ProductFeatureBaseline.Trim()) { $ProductFeatureBaseline.Trim() } else { $sourceCommitForPackage }
     $branch = Get-CommandOutput -FilePath "git" -Arguments @("branch", "--show-current") -WorkingDirectory $root
     $buildRoot = Join-Path $root ".build\installer"
     $stagePackageName = "DrugGradientChip-$Version-Windows-x64-CPU"
@@ -154,8 +158,8 @@ try {
 
     $portableArgs = @(
         "-Version", $Version,
-        "-SourceCommit", $commit,
-        "-ProductFeatureBaseline", $commit,
+        "-SourceCommit", $sourceCommitForPackage,
+        "-ProductFeatureBaseline", $featureBaselineForPackage,
         "-OutputRoot", $output,
         "-RuntimeCondaEnvironment", $RuntimeCondaEnvironment,
         "-DistributionFlavor", "CPU",
@@ -181,8 +185,8 @@ try {
     $buildInfo = Get-Content -LiteralPath $buildInfoPath -Raw | ConvertFrom-Json
     $buildInfo | Add-Member -NotePropertyName installer_version -NotePropertyValue $Version -Force
     $buildInfo | Add-Member -NotePropertyName source_branch -NotePropertyValue $branch -Force
-    $buildInfo | Add-Member -NotePropertyName source_commit -NotePropertyValue $commit -Force
-    $buildInfo | Add-Member -NotePropertyName product_feature_baseline -NotePropertyValue $commit -Force
+    $buildInfo | Add-Member -NotePropertyName source_commit -NotePropertyValue $sourceCommitForPackage -Force
+    $buildInfo | Add-Member -NotePropertyName product_feature_baseline -NotePropertyValue $featureBaselineForPackage -Force
     $buildInfo | Add-Member -NotePropertyName builder_commit -NotePropertyValue $commit -Force
     $buildInfo | Add-Member -NotePropertyName windows_installer -NotePropertyValue $true -Force
     $buildInfo | Add-Member -NotePropertyName webview2_installer_embedded -NotePropertyValue $true -Force
@@ -194,8 +198,9 @@ try {
 Installer: DrugGradientChip-Setup-$Version-Windows-x64.exe
 Installer builder script: scripts/build_windows_installer.ps1
 Source branch: $branch
-Source commit: $commit
-Product feature baseline: $commit
+Source commit: $sourceCommitForPackage
+Product feature baseline: $featureBaselineForPackage
+Builder commit: $commit
 WebView2 installer embedded: yes
 WebView2 installer size: $($webView2Installer.Size)
 WebView2 installer SHA256: $($webView2Installer.Sha256)
@@ -224,7 +229,9 @@ WebView2 installer file version: $($webView2Installer.FileVersion)
     Write-Text -Path "$setupExe.sha256" -Text "$setupSha  $(Split-Path -Leaf $setupExe)"
 
     Info "Source branch: $branch"
-    Info "Source commit: $commit"
+    Info "Source commit: $sourceCommitForPackage"
+    Info "Product feature baseline: $featureBaselineForPackage"
+    Info "Builder commit: $commit"
     Info "Created portable ZIP: $portableZip"
     Info "Portable SHA256: $portableSha"
     Info "Created setup EXE: $setupExe"
