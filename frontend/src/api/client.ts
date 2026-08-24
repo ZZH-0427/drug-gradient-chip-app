@@ -1,5 +1,7 @@
 import type {
   ApiErrorResponse,
+  ChatMessageRequest,
+  ChatMessageResponse,
   ForwardPredictionRequest,
   ForwardPredictionResponse,
   ModelStatusResponse,
@@ -65,6 +67,14 @@ export async function getReverseTask(taskId: string): Promise<ReverseTaskStatusR
 
 export async function cancelReverseTask(taskId: string): Promise<ReverseTaskStatusResponse> {
   return request<ReverseTaskStatusResponse>(`/api/v1/reverse-tasks/${taskId}`, { method: "DELETE" });
+}
+
+export async function sendChatMessage(payload: ChatMessageRequest): Promise<ChatMessageResponse> {
+  return request<ChatMessageResponse>("/api/v1/chat/message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
