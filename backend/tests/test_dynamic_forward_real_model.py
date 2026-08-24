@@ -44,12 +44,25 @@ def adapter() -> ForwardModelAdapter:
     return ForwardModelAdapter(settings)
 
 
-@pytest.mark.parametrize("chip_count", [4, 5, 6, 7, 8, 9, 10])
-def test_real_dynamic_forward_outputs_concentration_only(adapter: ForwardModelAdapter, chip_count: int) -> None:
+@pytest.mark.parametrize("chip_count", [4, 5, 7, 8, 9, 10])
+def test_real_zero_shot_forward_outputs_concentration_only(adapter: ForwardModelAdapter, chip_count: int) -> None:
     response = adapter.predict(ForwardPredictionRequest(**make_payload(chip_count)))
 
     assert response.chip_count == chip_count
     assert len(response.predictions) == chip_count
+    for index, prediction in enumerate(response.predictions, start=1):
+        assert prediction.position == index
+        assert prediction.point == f"y{index}"
+        assert math.isfinite(prediction.concentration)
+        assert not hasattr(prediction, "flow")
+        assert not hasattr(prediction, "seed_values")
+
+
+def test_real_fixed_six_forward_outputs_concentration_only(adapter: ForwardModelAdapter) -> None:
+    response = adapter.predict(ForwardPredictionRequest(**make_payload(6)))
+
+    assert response.chip_count == 6
+    assert len(response.predictions) == 6
     for index, prediction in enumerate(response.predictions, start=1):
         assert prediction.position == index
         assert prediction.point == f"y{index}"
