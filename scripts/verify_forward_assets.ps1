@@ -27,6 +27,19 @@ function Join-Relative {
     return $path
 }
 
+function Assert-Sequence {
+    param(
+        [Parameter(Mandatory = $true)]$Actual,
+        [Parameter(Mandatory = $true)][string]$Expected,
+        [Parameter(Mandatory = $true)][string]$DisplayName
+    )
+    $actualText = $Actual -join ","
+    if ($actualText -ne $Expected) {
+        Write-Error "Unexpected ${DisplayName}: $actualText"
+        exit 1
+    }
+}
+
 $repoRoot = Get-RepoRoot
 if ([string]::IsNullOrWhiteSpace($AssetRoot)) {
     $AssetRoot = Join-Path $repoRoot "model_assets\physics_gnn"
@@ -50,25 +63,43 @@ if ([string]$manifest.model_family -ne "PhysicsGuidedDualTaskGNN") {
     Write-Error "Unexpected model family: $($manifest.model_family)"
     exit 1
 }
-if (($manifest.supported_forward_chip_counts -join ",") -ne "4,5,6,7,8,9,10") {
-    Write-Error "Unexpected forward chip counts: $($manifest.supported_forward_chip_counts -join ',')"
-    $failed = $true
-}
-if (($manifest.supported_reverse_chip_counts -join ",") -ne "6") {
-    Write-Error "Unexpected reverse chip counts: $($manifest.supported_reverse_chip_counts -join ',')"
-    $failed = $true
-}
-if ([string]$manifest.forward_graph_mode -ne "dynamic") {
+Assert-Sequence -Actual $manifest.supported_forward_chip_counts -Expected "4,5,6,7,8,9,10" -DisplayName "forward chip counts"
+Assert-Sequence -Actual $manifest.supported_reverse_chip_counts -Expected "6" -DisplayName "reverse chip counts"
+if ([string]$manifest.forward_graph_mode -ne "routed") {
     Write-Error "Unexpected forward graph mode: $($manifest.forward_graph_mode)"
-    $failed = $true
+    exit 1
+}
+if ($null -eq $manifest.forward_routes) {
+    Write-Error "Manifest is missing forward_routes."
+    exit 1
+}
+$fixedSixRoute = $manifest.forward_routes.fixed_six
+$zeroShotRoute = $manifest.forward_routes.zero_shot
+if ($null -eq $fixedSixRoute) {
+    Write-Error "Manifest is missing forward_routes.fixed_six."
+    exit 1
+}
+if ($null -eq $zeroShotRoute) {
+    Write-Error "Manifest is missing forward_routes.zero_shot."
+    exit 1
+}
+Assert-Sequence -Actual $fixedSixRoute.chip_counts -Expected "6" -DisplayName "fixed-six route chip counts"
+if ([string]$fixedSixRoute.graph_mode -ne "fixed") {
+    Write-Error "Unexpected fixed-six route graph mode: $($fixedSixRoute.graph_mode)"
+    exit 1
+}
+Assert-Sequence -Actual $zeroShotRoute.chip_counts -Expected "4,5,7,8,9,10" -DisplayName "zero-shot route chip counts"
+if ([string]$zeroShotRoute.graph_mode -ne "dynamic") {
+    Write-Error "Unexpected zero-shot route graph mode: $($zeroShotRoute.graph_mode)"
+    exit 1
+}
+if ([string]$zeroShotRoute.scale_extension -ne "zero_shot") {
+    Write-Error "Unexpected zero-shot route scale extension: $($zeroShotRoute.scale_extension)"
+    exit 1
 }
 if ([int]$manifest.training_chip_count -ne 6) {
     Write-Error "Unexpected training chip count: $($manifest.training_chip_count)"
-    $failed = $true
-}
-if ([string]$manifest.scale_extension -ne "zero_shot") {
-    Write-Error "Unexpected scale extension: $($manifest.scale_extension)"
-    $failed = $true
+    exit 1
 }
 if ([string]$manifest.public_forward_output -ne "concentration_only") {
     Write-Error "Unexpected public output: $($manifest.public_forward_output)"
@@ -108,4 +139,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "model family: PhysicsGuidedDualTaskGNN"
 Write-Host "checkpoint count: 1"
 Write-Host "seed: 44"
+Write-Host "forward graph mode: routed"
+Write-Host "fixed-six route: chip_count 6, graph_mode fixed"
+Write-Host "zero-shot route: chip_counts 4,5,7,8,9,10, graph_mode dynamic, scale_extension zero_shot"
 Write-Host "hash validation: passed"

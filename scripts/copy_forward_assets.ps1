@@ -98,9 +98,19 @@ $manifest = [ordered]@{
     checkpoint_size_bytes = $checkpoint.Length
     supported_forward_chip_counts = @(4, 5, 6, 7, 8, 9, 10)
     supported_reverse_chip_counts = @(6)
-    forward_graph_mode = "dynamic"
+    forward_graph_mode = "routed"
+    forward_routes = [ordered]@{
+        fixed_six = [ordered]@{
+            chip_counts = @(6)
+            graph_mode = "fixed"
+        }
+        zero_shot = [ordered]@{
+            chip_counts = @(4, 5, 7, 8, 9, 10)
+            graph_mode = "dynamic"
+            scale_extension = "zero_shot"
+        }
+    }
     training_chip_count = 6
-    scale_extension = "zero_shot"
     public_forward_output = "concentration_only"
     internal_outputs = @("concentration", "flow")
 }
