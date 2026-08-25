@@ -64,9 +64,11 @@ ZH_RIGHT_EDGE_WIDTH = "\u53f3\u8fb9\u5bbd\u5ea6"
 ZH_LEFT_DISTANCE = "\u5de6\u8ddd\u79bb"
 ZH_LEFT_SIDE_DISTANCE = "\u5de6\u4fa7\u8ddd\u79bb"
 ZH_LEFT_BEND_STRAIGHT_DISTANCE = "\u5de6\u5f2f\u76f4\u8ddd\u79bb"
+ZH_LEFT_CURVED_STRAIGHT_DISTANCE = "\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb"
 ZH_RIGHT_DISTANCE = "\u53f3\u8ddd\u79bb"
 ZH_RIGHT_SIDE_DISTANCE = "\u53f3\u4fa7\u8ddd\u79bb"
 ZH_RIGHT_BEND_STRAIGHT_DISTANCE = "\u53f3\u5f2f\u76f4\u8ddd\u79bb"
+ZH_RIGHT_CURVED_STRAIGHT_DISTANCE = "\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb"
 ZH_TARGET = "\u76ee\u6807"
 ZH_TARGET_CONCENTRATION = "\u76ee\u6807\u6d53\u5ea6"
 
@@ -211,12 +213,20 @@ def parse_chip_count(text: str) -> int | None:
         rf"(?:chips?|{ZH_CHIP_COUNT}|{ZH_CHIP_COUNT_SHORT})\s*(?:=|{ZH_TO}|{ZH_IS}|to)?\s*({NUMBER_PATTERN})",
     ]
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            if _chip_count_match_is_ordinal(text, match.start(1)):
+                continue
             value = float(match.group(1))
             if value.is_integer():
                 return int(value)
     return None
+
+
+def _chip_count_match_is_ordinal(text: str, number_start: int) -> bool:
+    if number_start > 0 and text[number_start - 1] == "\u7b2c":
+        return True
+    prefix = text[max(0, number_start - 4):number_start].lower()
+    return bool(re.search(r"(?:chip|chips?|%s)\s*$" % ZH_CHIP, prefix))
 
 
 def parse_inlet(text: str) -> tuple[float, float] | None:
@@ -350,6 +360,15 @@ def parse_chip_position(text: str) -> int | None:
     match = re.search(r"chip\s*(\d{1,2})", lowered)
     if match:
         return int(match.group(1))
+    match = re.search(rf"{ZH_CHIP}\s*(\d{{1,2}})", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(rf"\u7b2c\s*(\d{{1,2}})\s*(?:\u4e2a)?\s*{ZH_CHIP}", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(rf"(\d{{1,2}})\s*\u53f7\s*{ZH_CHIP}", text)
+    if match:
+        return int(match.group(1))
     match = re.search(rf"\u7b2c\s*([{''.join(CHINESE_DIGITS)}])\s*(?:\u4e2a)?\s*{ZH_CHIP}", text)
     if match:
         return CHINESE_DIGITS[match.group(1)]
@@ -364,9 +383,9 @@ def parse_chip_field(text: str) -> str | None:
         return "left_width_mm"
     if has_any(text, ["right width", ZH_RIGHT_WIDTH, ZH_RIGHT_SIDE_WIDTH, ZH_RIGHT_EDGE_WIDTH]):
         return "right_width_mm"
-    if has_any(text, ["left distance", "left bend", "left bend-straight distance", "left bend straight distance", ZH_LEFT_DISTANCE, ZH_LEFT_SIDE_DISTANCE, ZH_LEFT_BEND_STRAIGHT_DISTANCE]):
+    if has_any(text, ["left distance", "left bend", "left bend-straight distance", "left bend straight distance", ZH_LEFT_DISTANCE, ZH_LEFT_SIDE_DISTANCE, ZH_LEFT_BEND_STRAIGHT_DISTANCE, ZH_LEFT_CURVED_STRAIGHT_DISTANCE]):
         return "left_bend_straight_distance_mm"
-    if has_any(text, ["right distance", "right bend", "right bend-straight distance", "right bend straight distance", ZH_RIGHT_DISTANCE, ZH_RIGHT_SIDE_DISTANCE, ZH_RIGHT_BEND_STRAIGHT_DISTANCE]):
+    if has_any(text, ["right distance", "right bend", "right bend-straight distance", "right bend straight distance", ZH_RIGHT_DISTANCE, ZH_RIGHT_SIDE_DISTANCE, ZH_RIGHT_BEND_STRAIGHT_DISTANCE, ZH_RIGHT_CURVED_STRAIGHT_DISTANCE]):
         return "right_bend_straight_distance_mm"
     return None
 

@@ -68,7 +68,7 @@ function localizeReverseMessage(message: string, t: I18nContextValue["t"]) {
   if (message === LEGACY_CFD_NOTE || message.includes("Fluent/CFD")) {
     return t("reverse.cfdNote");
   }
-  return t("errors.reverse_failed");
+  return message;
 }
 
 function getInletMode(form: ReverseDesignRequest): InletMode {
