@@ -37,6 +37,18 @@ def test_parser_detects_chip_count_without_start_intent() -> None:
     assert parsed.fields["chip_count"] == 8
 
 
+def test_parser_does_not_treat_chinese_chip_ordinals_as_chip_count() -> None:
+    for text in [
+        zh(r"\u7b2c1\u4e2a\u82af\u7247\u53f3\u5bbd\u5ea6\u662f.138"),
+        zh(r"1\u53f7\u82af\u7247\u5de6\u5bbd\u5ea6\u662f.1"),
+        zh(r"\u82af\u72476\u7c7b\u578b\u662f3to1"),
+    ]:
+        parsed = parse(text)
+
+        assert parsed.intent == "set_chip_parameter"
+        assert "chip_count" not in parsed.fields
+
+
 def test_parser_detects_inlet_high_modes() -> None:
     assert parse(zh(r"\u5165\u53e31 \u9ad8\u6d53\u5ea6")).fields == {"inlet1": 1.0, "inlet2": 0.0}
     assert parse(zh(r"\u5165\u53e32 \u9ad8\u6d53\u5ea6")).fields == {"inlet1": 0.0, "inlet2": 1.0}
@@ -54,10 +66,12 @@ def test_parser_detects_p_values() -> None:
 def test_parser_detects_chip_left_and_right_width_modifications() -> None:
     left = parse(zh(r"\u7b2c\u4e09\u4e2a\u82af\u7247\u5de6\u4fa7\u5bbd\u5ea6\u6539\u62100.15"))
     right = parse("set chip 3 right width to .20")
+    chinese_right = parse(zh(r"\u7b2c1\u4e2a\u82af\u7247\u53f3\u5bbd\u5ea6\u662f.138"))
 
     assert left.intent == "set_chip_parameter"
     assert left.fields == {"chip_position": 3, "chip_field": "left_width_mm", "value": 0.15}
     assert right.fields == {"chip_position": 3, "chip_field": "right_width_mm", "value": 0.20}
+    assert chinese_right.fields == {"chip_position": 1, "chip_field": "right_width_mm", "value": 0.138}
 
 
 def test_parser_detects_chinese_chip_type() -> None:
@@ -92,6 +106,14 @@ def test_parser_detects_chinese_left_and_right_distances() -> None:
             "right_bend_straight_distance_mm": 25.0,
         },
     }
+
+
+def test_parser_detects_chinese_single_curved_straight_distances() -> None:
+    left = parse(zh(r"\u7b2c1\u4e2a\u82af\u7247\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f31"))
+    right = parse(zh(r"\u7b2c3\u4e2a\u82af\u7247\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f25"))
+
+    assert left.fields == {"chip_position": 1, "chip_field": "left_bend_straight_distance_mm", "value": 31.0}
+    assert right.fields == {"chip_position": 3, "chip_field": "right_bend_straight_distance_mm", "value": 25.0}
 
 
 def test_parser_detects_english_left_and_right_distances() -> None:

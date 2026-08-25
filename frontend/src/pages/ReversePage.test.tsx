@@ -237,6 +237,44 @@ describe("Reverse localized task submission and cancellation", () => {
 });
 
 describe("Reverse localized results", () => {
+  it("shows unknown completed result notes verbatim without mapping them to failed", async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
+    mockFetch(jsonResponse(completedTask(["A reviewer-specific completed-result note."])));
+
+    renderReversePage();
+
+    expect(await screen.findByText("Completed, Elapsed 1.00 seconds")).toBeInTheDocument();
+    expect(screen.getByText("A reviewer-specific completed-result note.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("The reverse-prediction task failed.");
+  });
+
+  it("localizes known completed result notes", async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
+    mockFetch(jsonResponse(completedTask()));
+
+    renderReversePage();
+
+    expect(await screen.findByText("Completed, Elapsed 1.00 seconds")).toBeInTheDocument();
+    expect(
+      screen.getByText("Internal screening only indicates that the structure was evaluated by the same Physics-GNN surrogate model."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("The final design must still be independently verified using Fluent/CFD.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("The reverse-prediction task failed.");
+  });
+
+  it("still shows a real reverse failure when task status is failed", async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+    window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
+    mockFetch(jsonResponse(failedTask("REVERSE_TASK_FAILED", "server detail")));
+
+    renderReversePage();
+
+    expect(await screen.findByText("The reverse-prediction task failed.")).toBeInTheDocument();
+    expect(screen.getByText("Failed, Elapsed 1.00 seconds")).toBeInTheDocument();
+  });
+
   it("hides result warnings while preserving Chinese notes, metrics, and result rows", async () => {
     window.sessionStorage.setItem(REVERSE_TASK_STORAGE_KEY, "task-1");
     mockFetch(jsonResponse(completedTask()));
@@ -487,7 +525,12 @@ function failedTask(code: string, message: string) {
   };
 }
 
-function completedTask() {
+function completedTask(
+  notes = [
+    "Internal screening only means the structure was checked by the same Physics-GNN surrogate model.",
+    "Final designs should still be independently verified with Fluent/CFD.",
+  ],
+) {
   return {
     task_id: "task-1",
     status: "completed",
@@ -523,10 +566,7 @@ function completedTask() {
         selected_restart: 0,
       },
       warnings: [],
-      notes: [
-        "Internal screening only means the structure was checked by the same Physics-GNN surrogate model.",
-        "Final designs should still be independently verified with Fluent/CFD.",
-      ],
+      notes,
     },
   };
 }
