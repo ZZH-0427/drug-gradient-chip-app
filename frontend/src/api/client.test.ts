@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiClientError, runForwardPrediction } from "./client";
+import { ApiClientError, runForwardPrediction, sendChatMessage } from "./client";
 
 const request = {
   sample_name: "DP 0",
@@ -21,6 +21,38 @@ afterEach(() => {
 });
 
 describe("API error mapping", () => {
+  it("posts chat messages through the shared API client", async () => {
+    const fetchMock = mockFetch(
+      jsonResponse({
+        session_id: "session-1",
+        state: "collecting",
+        intent: "start_forward",
+        assistant_message: "Recorded.",
+        missing_fields: [],
+        parameter_summary: {},
+        confirmation: null,
+        forward_prediction: null,
+        reverse_task: null,
+        error: null,
+      }),
+    );
+
+    const response = await sendChatMessage({
+      session_id: null,
+      message: "use 6 chips",
+      language: "en",
+    });
+
+    expect(response.session_id).toBe("session-1");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/chat/message");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      session_id: null,
+      message: "use 6 chips",
+      language: "en",
+    });
+  });
+
   it.each([
     [422, { error: { code: "VALIDATION_ERROR", message: "C:\\private\\trace" } }, "validation"],
     [422, { error: { code: "UNSUPPORTED_CHIP_COUNT", message: "D:\\model\\checkpoint.pt" } }, "unsupported_chip_count"],

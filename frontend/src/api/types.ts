@@ -106,6 +106,55 @@ export interface ReverseTaskStatusResponse {
   warnings: string[];
 }
 
+export type ChatLanguage = "zh-CN" | "en" | "en-US";
+export type ChatState = "idle" | "collecting" | "ready_for_confirmation" | "running" | "completed" | "error";
+export type ChatIntent =
+  | "unknown"
+  | "start_forward"
+  | "start_reverse"
+  | "set_chip_count"
+  | "set_inlet"
+  | "set_chip_parameter"
+  | "set_target_concentration"
+  | "show_parameters"
+  | "confirm"
+  | "run_prediction"
+  | "cancel"
+  | "reset"
+  | "help"
+  | "switch_language";
+
+export interface ChatMessageRequest {
+  session_id?: string | null;
+  message: string;
+  language: ChatLanguage;
+}
+
+export interface ChatError {
+  code: string;
+  message: string;
+}
+
+export interface ChatConfirmation {
+  mode: "idle" | "forward" | "reverse";
+  summary: ParameterSummary;
+}
+
+export type ParameterSummary = Record<string, unknown>;
+
+export interface ChatMessageResponse {
+  session_id: string;
+  state: ChatState;
+  intent: ChatIntent;
+  assistant_message: string;
+  missing_fields: string[];
+  parameter_summary: ParameterSummary;
+  confirmation?: ChatConfirmation | null;
+  forward_prediction?: ForwardPredictionResponse | null;
+  reverse_task?: ReverseTaskCreatedResponse | null;
+  error?: ChatError | null;
+}
+
 export interface ApiErrorResponse {
   error?: {
     code?: string;
