@@ -56,19 +56,24 @@ ZH_CHANNEL = "\u901a\u9053"
 ZH_TYPE = "\u7c7b\u578b"
 ZH_STRUCTURE = "\u7ed3\u6784"
 ZH_LEFT_WIDTH = "\u5de6\u5bbd\u5ea6"
+ZH_LEFT_WIDTH_SHORT = "\u5de6\u5bbd"
 ZH_LEFT_SIDE_WIDTH = "\u5de6\u4fa7\u5bbd\u5ea6"
 ZH_LEFT_EDGE_WIDTH = "\u5de6\u8fb9\u5bbd\u5ea6"
 ZH_RIGHT_WIDTH = "\u53f3\u5bbd\u5ea6"
+ZH_RIGHT_WIDTH_SHORT = "\u53f3\u5bbd"
 ZH_RIGHT_SIDE_WIDTH = "\u53f3\u4fa7\u5bbd\u5ea6"
 ZH_RIGHT_EDGE_WIDTH = "\u53f3\u8fb9\u5bbd\u5ea6"
 ZH_LEFT_DISTANCE = "\u5de6\u8ddd\u79bb"
+ZH_LEFT_DISTANCE_SHORT = "\u5de6\u8ddd"
 ZH_LEFT_SIDE_DISTANCE = "\u5de6\u4fa7\u8ddd\u79bb"
 ZH_LEFT_BEND_STRAIGHT_DISTANCE = "\u5de6\u5f2f\u76f4\u8ddd\u79bb"
 ZH_LEFT_CURVED_STRAIGHT_DISTANCE = "\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb"
 ZH_RIGHT_DISTANCE = "\u53f3\u8ddd\u79bb"
+ZH_RIGHT_DISTANCE_SHORT = "\u53f3\u8ddd"
 ZH_RIGHT_SIDE_DISTANCE = "\u53f3\u4fa7\u8ddd\u79bb"
 ZH_RIGHT_BEND_STRAIGHT_DISTANCE = "\u53f3\u5f2f\u76f4\u8ddd\u79bb"
 ZH_RIGHT_CURVED_STRAIGHT_DISTANCE = "\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb"
+ZH_POSITION = "\u4f4d\u7f6e"
 ZH_TARGET = "\u76ee\u6807"
 ZH_TARGET_CONCENTRATION = "\u76ee\u6807\u6d53\u5ea6"
 
@@ -333,7 +338,7 @@ def parse_forward_composite(text: str) -> ParsedMessage:
 def split_message_segments(text: str) -> list[str]:
     return [
         segment.strip()
-        for segment in re.split(r"[,;\uff0c\u3002\uff1b]|\.(?!\d)", text)
+        for segment in re.split(r"\r\n|\r|\n|[,;\uff0c\u3002\uff1b]|\.(?!\d)", text)
         if segment.strip()
     ]
 
@@ -359,9 +364,11 @@ def parse_chip_update_segment(text: str, current_position: int | None = None) ->
     effective_position = position if position is not None else current_position
 
     chip_type = parse_chip_type(text)
+    if chip_type is None and position is not None:
+        chip_type = parse_chip_type_value(text)
     if chip_type is not None:
         return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_type": chip_type})
-    if has_chip_type_context(text) and INVALID_CHIP_TYPE_PATTERN.search(text):
+    if (has_chip_type_context(text) or position is not None) and INVALID_CHIP_TYPE_PATTERN.search(text):
         return ParsedMessage(ambiguity="invalid_chip_type")
 
     paired_distances = parse_paired_distances(text)
@@ -443,6 +450,10 @@ def parse_chip_parameter(text: str) -> ParsedMessage:
 def parse_chip_type(text: str) -> str | None:
     if not has_chip_type_context(text):
         return None
+    return parse_chip_type_value(text)
+
+
+def parse_chip_type_value(text: str) -> str | None:
     match = CHIP_TYPE_PATTERN.search(text)
     if match is None:
         return None
@@ -474,6 +485,7 @@ def parse_paired_distances(text: str) -> dict[str, float]:
             "left bend-straight distance",
             "left bend straight distance",
             ZH_LEFT_DISTANCE,
+            ZH_LEFT_DISTANCE_SHORT,
             ZH_LEFT_SIDE_DISTANCE,
             ZH_LEFT_BEND_STRAIGHT_DISTANCE,
             ZH_LEFT_CURVED_STRAIGHT_DISTANCE,
@@ -486,6 +498,7 @@ def parse_paired_distances(text: str) -> dict[str, float]:
             "right bend-straight distance",
             "right bend straight distance",
             ZH_RIGHT_DISTANCE,
+            ZH_RIGHT_DISTANCE_SHORT,
             ZH_RIGHT_SIDE_DISTANCE,
             ZH_RIGHT_BEND_STRAIGHT_DISTANCE,
             ZH_RIGHT_CURVED_STRAIGHT_DISTANCE,
@@ -515,6 +528,15 @@ def parse_chip_position(text: str) -> int | None:
     match = re.search(r"chip\s*(\d{1,2})", lowered)
     if match:
         return int(match.group(1))
+    match = re.search(rf"{ZH_POSITION}\s*(\d{{1,2}})", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(rf"\u7b2c\s*(\d{{1,2}})\s*(?:\u4e2a)?\s*{ZH_POSITION}", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(rf"\u7b2c\s*([{''.join(CHINESE_DIGITS)}])\s*(?:\u4e2a)?\s*{ZH_POSITION}", text)
+    if match:
+        return CHINESE_DIGITS[match.group(1)]
     match = re.search(rf"{ZH_CHIP}\s*(\d{{1,2}})", text)
     if match:
         return int(match.group(1))
@@ -534,13 +556,13 @@ def parse_chip_position(text: str) -> int | None:
 
 
 def parse_chip_field(text: str) -> str | None:
-    if has_any(text, ["left width", ZH_LEFT_WIDTH, ZH_LEFT_SIDE_WIDTH, ZH_LEFT_EDGE_WIDTH]):
+    if has_any(text, ["left width", ZH_LEFT_WIDTH, ZH_LEFT_WIDTH_SHORT, ZH_LEFT_SIDE_WIDTH, ZH_LEFT_EDGE_WIDTH]):
         return "left_width_mm"
-    if has_any(text, ["right width", ZH_RIGHT_WIDTH, ZH_RIGHT_SIDE_WIDTH, ZH_RIGHT_EDGE_WIDTH]):
+    if has_any(text, ["right width", ZH_RIGHT_WIDTH, ZH_RIGHT_WIDTH_SHORT, ZH_RIGHT_SIDE_WIDTH, ZH_RIGHT_EDGE_WIDTH]):
         return "right_width_mm"
-    if has_any(text, ["left distance", "left bend", "left bend-straight distance", "left bend straight distance", ZH_LEFT_DISTANCE, ZH_LEFT_SIDE_DISTANCE, ZH_LEFT_BEND_STRAIGHT_DISTANCE, ZH_LEFT_CURVED_STRAIGHT_DISTANCE]):
+    if has_any(text, ["left distance", "left bend", "left bend-straight distance", "left bend straight distance", ZH_LEFT_DISTANCE, ZH_LEFT_DISTANCE_SHORT, ZH_LEFT_SIDE_DISTANCE, ZH_LEFT_BEND_STRAIGHT_DISTANCE, ZH_LEFT_CURVED_STRAIGHT_DISTANCE]):
         return "left_bend_straight_distance_mm"
-    if has_any(text, ["right distance", "right bend", "right bend-straight distance", "right bend straight distance", ZH_RIGHT_DISTANCE, ZH_RIGHT_SIDE_DISTANCE, ZH_RIGHT_BEND_STRAIGHT_DISTANCE, ZH_RIGHT_CURVED_STRAIGHT_DISTANCE]):
+    if has_any(text, ["right distance", "right bend", "right bend-straight distance", "right bend straight distance", ZH_RIGHT_DISTANCE, ZH_RIGHT_DISTANCE_SHORT, ZH_RIGHT_SIDE_DISTANCE, ZH_RIGHT_BEND_STRAIGHT_DISTANCE, ZH_RIGHT_CURVED_STRAIGHT_DISTANCE]):
         return "right_bend_straight_distance_mm"
     return None
 

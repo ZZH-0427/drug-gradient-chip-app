@@ -104,6 +104,45 @@ def test_parser_detects_chinese_chip_type() -> None:
     assert parsed.fields == {"chip_position": 1, "chip_type": "5to4"}
 
 
+def test_parser_detects_position_shorthand_chip_type_and_field_aliases() -> None:
+    shorthand = parse(zh(r"\u4f4d\u7f6e1\uff1a5to4"))
+    left_width = parse(zh(r"\u5de6\u5bbd.261"))
+    right_width = parse(zh(r"\u53f3\u5bbd=0.138"))
+    left_distance = parse(zh(r"\u5de6\u8ddd31"))
+    right_distance = parse(zh(r"\u53f3\u8ddd\u79bb25"))
+
+    assert shorthand.fields == {"chip_position": 1, "chip_type": "5to4"}
+    assert left_width.fields == {"chip_field": "left_width_mm", "value": 0.261}
+    assert right_width.fields == {"chip_field": "right_width_mm", "value": 0.138}
+    assert left_distance.fields == {"chip_field": "left_bend_straight_distance_mm", "value": 31.0}
+    assert right_distance.fields == {"chip_field": "right_bend_straight_distance_mm", "value": 25.0}
+
+
+def test_parser_treats_newlines_as_parameter_separators_with_position_scope() -> None:
+    parsed = parse(
+        zh(
+            r"\u7b2c\u4e00\u4e2a\u82af\u7247\u7c7b\u578b\u662f5to4\n"
+            r"\u5de6\u5bbd\u5ea6\u662f0.261\n"
+            r"\u53f3\u5bbd\u5ea6\u662f0.138"
+        )
+    )
+
+    assert parsed.intent == "set_chip_parameter"
+    assert parsed.fields["chip_parameter_updates"] == [
+        {"chip_position": 1, "explicit_position": True, "chip_type": "5to4"},
+        {"chip_position": 1, "explicit_position": False, "chip_field": "left_width_mm", "value": 0.261},
+        {"chip_position": 1, "explicit_position": False, "chip_field": "right_width_mm", "value": 0.138},
+    ]
+
+
+def test_parser_does_not_guess_field_for_bare_position_number() -> None:
+    position_number = parse(zh(r"\u4f4d\u7f6e1\uff1a.261"))
+    ordinal_number = parse(zh(r"\u7b2c\u4e00\u4e2a\u82af\u72470.261"))
+
+    assert position_number.ambiguity == "chip_parameter_without_field"
+    assert ordinal_number.ambiguity == "chip_parameter_without_field"
+
+
 def test_parser_detects_english_chip_type() -> None:
     parsed = parse("set chip 2 chip type to 4to5")
 
