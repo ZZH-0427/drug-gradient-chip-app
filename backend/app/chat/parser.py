@@ -132,6 +132,10 @@ class DeterministicChatParser:
                 fields={"target_concentrations": reverse_targets},
             )
 
+        composite = parse_forward_composite(text)
+        if composite.ambiguity or composite.fields:
+            return composite
+
         p_values = parse_p_values(text)
         if p_values:
             return ParsedMessage(intent="set_chip_parameter", fields={"p_values": p_values})
@@ -225,21 +229,42 @@ def parse_chip_count(text: str) -> int | None:
 def _chip_count_match_is_ordinal(text: str, number_start: int) -> bool:
     if number_start > 0 and text[number_start - 1] == "\u7b2c":
         return True
-    prefix = text[max(0, number_start - 4):number_start].lower()
-    return bool(re.search(r"(?:chip|chips?|%s)\s*$" % ZH_CHIP, prefix))
+    prefix = text[:number_start].lower()
+    return bool(re.search(rf"(?:\bchips?|\bchip|{ZH_CHIP})\s*$", prefix))
 
 
 def parse_inlet(text: str) -> tuple[float, float] | None:
+    relation, ambiguity = parse_inlet_relation(text)
+    if ambiguity is not None:
+        return None
+    return relation
+
+
+def parse_inlet_relation(text: str) -> tuple[tuple[float, float] | None, str | None]:
     lowered = text.lower().replace(" ", "")
-    if re.search(rf"(inlet1|{ZH_INLET_1}|{ZH_INLET_ONE}).*(high|{ZH_HIGH_CONCENTRATION}|{ZH_HIGH})", lowered):
-        return 1.0, 0.0
-    if re.search(rf"(inlet2|{ZH_INLET_2}|{ZH_INLET_TWO}).*(high|{ZH_HIGH_CONCENTRATION}|{ZH_HIGH})", lowered):
-        return 0.0, 1.0
-    if re.search(rf"(inlet1|{ZH_INLET_1}|{ZH_INLET_ONE}).*(low|{ZH_LOW_CONCENTRATION}|{ZH_LOW})", lowered):
-        return 0.0, 1.0
-    if re.search(rf"(inlet2|{ZH_INLET_2}|{ZH_INLET_TWO}).*(low|{ZH_LOW_CONCENTRATION}|{ZH_LOW})", lowered):
-        return 1.0, 0.0
-    return None
+    inlet_pattern = re.compile(rf"inlet1|{ZH_INLET_1}|{ZH_INLET_ONE}|inlet2|{ZH_INLET_2}|{ZH_INLET_TWO}", flags=re.IGNORECASE)
+    matches = list(inlet_pattern.finditer(lowered))
+    relations: set[tuple[float, float]] = set()
+    for index, match in enumerate(matches):
+        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(lowered)
+        segment = lowered[match.start():next_start]
+        has_high = has_any(segment, ["high", ZH_HIGH_CONCENTRATION, ZH_HIGH])
+        has_low = has_any(segment, ["low", ZH_LOW_CONCENTRATION, ZH_LOW])
+        if has_high and has_low:
+            return None, "conflicting_inlet"
+        if not has_high and not has_low:
+            continue
+        inlet_name = match.group(0).lower()
+        is_inlet1 = inlet_name in {"inlet1", ZH_INLET_1, ZH_INLET_ONE}
+        if (is_inlet1 and has_high) or (not is_inlet1 and has_low):
+            relations.add((1.0, 0.0))
+        else:
+            relations.add((0.0, 1.0))
+    if len(relations) > 1:
+        return None, "conflicting_inlet"
+    if not relations:
+        return None, None
+    return next(iter(relations)), None
 
 
 def parse_p_values(text: str) -> dict[int, float]:
@@ -253,9 +278,136 @@ def parse_p_values(text: str) -> dict[int, float]:
     return result
 
 
+def parse_forward_composite(text: str) -> ParsedMessage:
+    starts_forward = has_any(text, ["forward", ZH_FORWARD, ZH_FRONTWARD])
+    starts_reverse = has_any(text, ["reverse", ZH_REVERSE])
+    chip_count = parse_chip_count(text)
+    inlet, inlet_ambiguity = parse_inlet_relation(text)
+    if inlet_ambiguity is not None:
+        return ParsedMessage(intent="set_inlet", ambiguity=inlet_ambiguity)
+    chip_updates: list[dict[str, Any]] = []
+    current_position: int | None = None
+
+    for segment in split_message_segments(text):
+        position = parse_chip_position(segment)
+        if position is not None:
+            current_position = position
+        update = parse_chip_update_segment(segment, current_position)
+        if update.ambiguity:
+            return ParsedMessage(intent="set_chip_parameter", ambiguity=update.ambiguity)
+        if update.fields:
+            chip_updates.append(update.fields)
+
+    if starts_reverse and not starts_forward and not chip_updates:
+        return ParsedMessage(intent="start_reverse", fields={"chip_count": chip_count} if chip_count else {})
+
+    fields: dict[str, Any] = {}
+    if chip_count is not None:
+        fields["chip_count"] = chip_count
+    if inlet is not None:
+        fields["inlet1"] = inlet[0]
+        fields["inlet2"] = inlet[1]
+    if chip_updates:
+        fields["chip_parameter_updates"] = chip_updates
+
+    if starts_forward:
+        return ParsedMessage(intent="start_forward", fields=fields)
+    if chip_updates:
+        if chip_count is None and inlet is None and len(chip_updates) == 1:
+            update = dict(chip_updates[0])
+            update.pop("explicit_position", None)
+            if update.get("chip_position") is None:
+                update.pop("chip_position", None)
+            return ParsedMessage(intent="set_chip_parameter", fields=update)
+        paired_update = combine_single_chip_field_updates(chip_updates)
+        if paired_update is not None and chip_count is None and inlet is None:
+            return ParsedMessage(intent="set_chip_parameter", fields=paired_update)
+        return ParsedMessage(intent="set_chip_parameter", fields=fields)
+    if inlet is not None:
+        return ParsedMessage(intent="set_inlet", fields=fields)
+    if chip_count is not None:
+        return ParsedMessage(intent="set_chip_count", fields=fields)
+    return ParsedMessage()
+
+
+def split_message_segments(text: str) -> list[str]:
+    return [
+        segment.strip()
+        for segment in re.split(r"[,;\uff0c\u3002\uff1b]|\.(?!\d)", text)
+        if segment.strip()
+    ]
+
+
+def combine_single_chip_field_updates(updates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not updates:
+        return None
+    position = updates[0].get("chip_position")
+    if position is None:
+        return None
+    chip_updates: dict[str, float] = {}
+    for update in updates:
+        if update.get("chip_position") != position:
+            return None
+        if "chip_field" not in update or "value" not in update:
+            return None
+        chip_updates[str(update["chip_field"])] = float(update["value"])
+    return {"chip_position": position, "chip_updates": chip_updates}
+
+
+def parse_chip_update_segment(text: str, current_position: int | None = None) -> ParsedMessage:
+    position = parse_chip_position(text)
+    effective_position = position if position is not None else current_position
+
+    chip_type = parse_chip_type(text)
+    if chip_type is not None:
+        return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_type": chip_type})
+    if has_chip_type_context(text) and INVALID_CHIP_TYPE_PATTERN.search(text):
+        return ParsedMessage(ambiguity="invalid_chip_type")
+
+    paired_distances = parse_paired_distances(text)
+    if paired_distances:
+        return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_updates": paired_distances})
+
+    field_name = parse_chip_field(text)
+    if field_name is not None:
+        values = extract_assignment_values(text)
+        if not values:
+            return ParsedMessage(ambiguity="chip_parameter_without_value")
+        return ParsedMessage(
+            fields={
+                "chip_position": effective_position,
+                "explicit_position": position is not None,
+                "chip_field": field_name,
+                "value": values[-1],
+            }
+        )
+
+    if position is None and has_any(text, [ZH_CHANGE_TO, ZH_SET_TO, "change to", "set to"]) and extract_numbers(text):
+        return ParsedMessage(ambiguity="parameter_without_target")
+    if position is not None and extract_numbers(text):
+        return ParsedMessage(ambiguity="chip_parameter_without_field")
+    return ParsedMessage()
+
+
 def parse_chip_parameter(text: str) -> ParsedMessage:
+    composite = parse_forward_composite(text)
+    if composite.ambiguity:
+        return composite
+    if composite.fields.get("chip_parameter_updates"):
+        updates = composite.fields["chip_parameter_updates"]
+        if len(updates) == 1:
+            update = dict(updates[0])
+            update.pop("explicit_position", None)
+            if update.get("chip_position") is None:
+                update.pop("chip_position", None)
+            return ParsedMessage(fields=update)
+        return ParsedMessage(fields=composite.fields)
+
     position = parse_chip_position(text)
     if position is None:
+        update = parse_chip_update_segment(text)
+        if update.fields or update.ambiguity:
+            return ParsedMessage(fields=update.fields, ambiguity=update.ambiguity)
         if has_any(text, [ZH_CHANGE_TO, ZH_SET_TO, "change to", "set to"]) and extract_numbers(text):
             return ParsedMessage(ambiguity="parameter_without_target")
         return ParsedMessage()
@@ -324,6 +476,7 @@ def parse_paired_distances(text: str) -> dict[str, float]:
             ZH_LEFT_DISTANCE,
             ZH_LEFT_SIDE_DISTANCE,
             ZH_LEFT_BEND_STRAIGHT_DISTANCE,
+            ZH_LEFT_CURVED_STRAIGHT_DISTANCE,
         ],
     )
     has_right = has_any(
@@ -335,6 +488,7 @@ def parse_paired_distances(text: str) -> dict[str, float]:
             ZH_RIGHT_DISTANCE,
             ZH_RIGHT_SIDE_DISTANCE,
             ZH_RIGHT_BEND_STRAIGHT_DISTANCE,
+            ZH_RIGHT_CURVED_STRAIGHT_DISTANCE,
         ],
     )
     if not has_left or not has_right:
@@ -350,7 +504,8 @@ def parse_paired_distances(text: str) -> dict[str, float]:
 
 def extract_assignment_values(text: str) -> list[float]:
     values = extract_numbers(text)
-    if re.search(r"\bchip\s*\d{1,2}\b", text, flags=re.IGNORECASE) and values:
+    position = parse_chip_position(text)
+    if position is not None and values and values[0] == float(position):
         return values[1:]
     return values
 

@@ -10,6 +10,7 @@ from app.chat.schemas import ChatConfirmation, ChatError, ChatMessageRequest, Ch
 from app.chat.session import ConversationSession, ConversationSessionStore
 from app.core.errors import ModelRuntimeError
 from app.core.model_state import ForwardAdapterProtocol
+from app.schemas.forward import FORWARD_WIDTH_MAX_MM, FORWARD_WIDTH_MIN_MM
 from app.schemas.reverse import ReverseTaskCreatedResponse
 
 
@@ -90,32 +91,22 @@ class ChatService:
         if parsed.intent == "switch_language":
             return self._response(session, parsed, assistant_message=message(session.language, "language"))
         if parsed.intent == "start_forward":
-            session.active_mode = "forward"
-            if "chip_count" in parsed.fields:
-                response = self._set_forward_chip_count(session, parsed, int(parsed.fields["chip_count"]))
-                if response is not None:
-                    return response
-            return self._after_forward_mutation(session, parsed)
+            return self._handle_forward_turn(session, parsed)
         if parsed.intent == "start_reverse":
+            session.active_chip_position = None
             session.active_mode = "reverse"
             return self._after_reverse_mutation(session, parsed)
         if parsed.intent == "set_chip_count":
-            session.active_mode = "forward"
-            response = self._set_forward_chip_count(session, parsed, int(parsed.fields["chip_count"]))
-            if response is not None:
-                return response
-            return self._after_forward_mutation(session, parsed)
+            return self._handle_forward_turn(session, parsed)
         if parsed.intent == "set_inlet":
+            if parsed.fields.get("chip_parameter_updates") or "chip_count" in parsed.fields:
+                return self._handle_forward_turn(session, parsed)
             self._apply_inlet(session, parsed)
             return self._after_active_mutation(session, parsed)
         if parsed.intent == "set_chip_parameter":
-            session.active_mode = "forward"
-            response = self._validate_forward_fields(session, parsed)
-            if response is not None:
-                return response
-            self._apply_forward_fields(session, parsed.fields)
-            return self._after_forward_mutation(session, parsed)
+            return self._handle_forward_turn(session, parsed)
         if parsed.intent == "set_target_concentration":
+            session.active_chip_position = None
             session.active_mode = "reverse"
             session.reverse_draft.target_concentrations = list(parsed.fields["target_concentrations"])
             return self._after_reverse_mutation(session, parsed)
@@ -194,7 +185,140 @@ class ChatService:
                 ),
             )
         session.forward_draft.set_chip_count(chip_count)
+        if session.active_chip_position is not None and session.active_chip_position > chip_count:
+            session.active_chip_position = None
         return None
+
+    def _handle_forward_turn(self, session: ConversationSession, parsed: ParsedMessage) -> ChatMessageResponse:
+        validation = self._validate_forward_turn(session, parsed)
+        if validation is not None:
+            return validation
+
+        if session.active_mode != "forward":
+            session.active_chip_position = None
+        session.active_mode = "forward"
+        if "chip_count" in parsed.fields:
+            response = self._set_forward_chip_count(session, parsed, int(parsed.fields["chip_count"]))
+            if response is not None:
+                return response
+        if "inlet1" in parsed.fields and "inlet2" in parsed.fields:
+            session.forward_draft.inlet1 = float(parsed.fields["inlet1"])
+            session.forward_draft.inlet2 = float(parsed.fields["inlet2"])
+        for point, value in parsed.fields.get("p_values", {}).items():
+            position = (int(point) + 1) // 2
+            chip = session.forward_draft.ensure_chip(position)
+            if int(point) % 2 == 1:
+                chip.left_width_mm = float(value)
+            else:
+                chip.right_width_mm = float(value)
+        for update in self._resolved_chip_updates(session, parsed):
+            position = int(update["chip_position"])
+            chip = session.forward_draft.ensure_chip(position)
+            if "chip_field" in update:
+                setattr(chip, str(update["chip_field"]), float(update["value"]))
+            if "chip_type" in update:
+                chip.chip_type = str(update["chip_type"])
+            if "chip_updates" in update:
+                for field_name, value in update["chip_updates"].items():
+                    setattr(chip, str(field_name), float(value))
+            if update.get("explicit_position"):
+                session.active_chip_position = position
+        return self._after_forward_mutation(session, parsed)
+
+    def _validate_forward_turn(
+        self,
+        session: ConversationSession,
+        parsed: ParsedMessage,
+    ) -> ChatMessageResponse | None:
+        fields = parsed.fields
+        effective_chip_count = int(fields["chip_count"]) if "chip_count" in fields else session.forward_draft.chip_count
+        if "chip_count" in fields and not session.forward_draft.can_change_chip_count(int(fields["chip_count"])):
+            return self._response(
+                session,
+                parsed,
+                assistant_message=message(session.language, "chip_count_shrink_rejected"),
+                error=ChatError(
+                    code="CHIP_COUNT_CHANGE_REQUIRES_RESET",
+                    message="Reducing chip count would delete existing tail chip parameters.",
+                ),
+            )
+        if "p_values" in fields:
+            if effective_chip_count is None:
+                return self._response(
+                    session,
+                    parsed,
+                    assistant_message=message(session.language, "chip_count_required"),
+                    error=ChatError(code="CHIP_COUNT_REQUIRED", message="Chip count is required before P values."),
+                )
+            max_point = effective_chip_count * 2
+            if any(int(point) > max_point for point in fields["p_values"]):
+                return self._response(
+                    session,
+                    parsed,
+                    assistant_message=message(session.language, "p_index_out_of_range"),
+                    error=ChatError(code="P_INDEX_OUT_OF_RANGE", message="P point exceeds chip_count range."),
+                )
+        for update in self._resolved_chip_updates(session, parsed):
+            position = update.get("chip_position")
+            if position is None:
+                return self._response(
+                    session,
+                    parsed,
+                    assistant_message=message(session.language, "ambiguous"),
+                    error=ChatError(code="AMBIGUOUS_INPUT", message="Ambiguous input."),
+                )
+            if effective_chip_count is not None and int(position) > effective_chip_count:
+                return self._response(
+                    session,
+                    parsed,
+                    assistant_message=message(session.language, "chip_index_out_of_range"),
+                    error=ChatError(code="CHIP_INDEX_OUT_OF_RANGE", message="Chip position exceeds chip_count range."),
+                )
+            if "chip_field" in update:
+                field_name = str(update["chip_field"])
+                value = float(update["value"])
+                if field_name in {"left_width_mm", "right_width_mm"} and (
+                    value < FORWARD_WIDTH_MIN_MM or value > FORWARD_WIDTH_MAX_MM
+                ):
+                    return self._response(
+                        session,
+                        parsed,
+                        assistant_message=message(session.language, "validation_error"),
+                        error=ChatError(code="VALIDATION_ERROR", message="Request validation failed."),
+                    )
+            if "chip_updates" in update:
+                for field_name, value in update["chip_updates"].items():
+                    if field_name in {"left_width_mm", "right_width_mm"} and (
+                        float(value) < FORWARD_WIDTH_MIN_MM or float(value) > FORWARD_WIDTH_MAX_MM
+                    ):
+                        return self._response(
+                            session,
+                            parsed,
+                            assistant_message=message(session.language, "validation_error"),
+                            error=ChatError(code="VALIDATION_ERROR", message="Request validation failed."),
+                        )
+        return None
+
+    def _resolved_chip_updates(
+        self,
+        session: ConversationSession,
+        parsed: ParsedMessage,
+    ) -> list[dict[str, Any]]:
+        raw_updates = parsed.fields.get("chip_parameter_updates")
+        updates: list[dict[str, Any]]
+        if isinstance(raw_updates, list):
+            updates = [dict(update) for update in raw_updates if isinstance(update, dict)]
+        elif any(key in parsed.fields for key in ("chip_position", "chip_field", "chip_type", "chip_updates")):
+            updates = [dict(parsed.fields)]
+        else:
+            return []
+        for update in updates:
+            if update.get("chip_position") is not None and "explicit_position" not in update:
+                update["explicit_position"] = True
+            if update.get("chip_position") is None:
+                update["chip_position"] = session.active_chip_position
+                update["explicit_position"] = False
+        return updates
 
     def _validate_forward_fields(
         self,

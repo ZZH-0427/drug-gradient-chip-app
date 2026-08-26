@@ -167,6 +167,7 @@ class ConversationSession:
     last_forward_result: Any = None
     last_reverse_task_id: str | None = None
     pending_confirmation: ChatMode | None = None
+    active_chip_position: int | None = None
 
     def reset(self) -> None:
         self.active_mode = "idle"
@@ -176,10 +177,12 @@ class ConversationSession:
         self.last_forward_result = None
         self.last_reverse_task_id = None
         self.pending_confirmation = None
+        self.active_chip_position = None
 
     def cancel_current_draft(self) -> None:
         if self.active_mode == "forward":
             self.forward_draft = ForwardDraft()
+            self.active_chip_position = None
         elif self.active_mode == "reverse":
             self.reverse_draft = ReverseDraft()
         self.active_mode = "idle"

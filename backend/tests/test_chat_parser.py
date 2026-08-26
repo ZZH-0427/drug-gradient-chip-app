@@ -56,6 +56,29 @@ def test_parser_detects_inlet_high_modes() -> None:
     assert parse("inlet 2 high").fields == {"inlet1": 0.0, "inlet2": 1.0}
 
 
+def test_parser_accepts_consistent_dual_inlet_relations() -> None:
+    high_low = parse(zh(r"\u5165\u53e31\u9ad8\u6d53\u5ea6\uff0c\u5165\u53e32\u4f4e\u6d53\u5ea6"))
+    low_high = parse(zh(r"\u5165\u53e31\u4f4e\u6d53\u5ea6\uff0c\u5165\u53e32\u9ad8\u6d53\u5ea6"))
+
+    assert high_low.intent == "set_inlet"
+    assert high_low.fields == {"inlet1": 1.0, "inlet2": 0.0}
+    assert low_high.intent == "set_inlet"
+    assert low_high.fields == {"inlet1": 0.0, "inlet2": 1.0}
+
+
+def test_parser_rejects_conflicting_dual_inlet_relations() -> None:
+    chinese_high_high = parse(zh(r"\u5165\u53e31\u9ad8\u6d53\u5ea6\uff0c\u5165\u53e32\u9ad8\u6d53\u5ea6"))
+    chinese_low_low = parse(zh(r"\u5165\u53e31\u4f4e\u6d53\u5ea6\uff0c\u5165\u53e32\u4f4e\u6d53\u5ea6"))
+    english_high_high = parse("inlet 1 high, inlet 2 high")
+
+    assert chinese_high_high.intent == "set_inlet"
+    assert chinese_high_high.ambiguity == "conflicting_inlet"
+    assert chinese_low_low.intent == "set_inlet"
+    assert chinese_low_low.ambiguity == "conflicting_inlet"
+    assert english_high_high.intent == "set_inlet"
+    assert english_high_high.ambiguity == "conflicting_inlet"
+
+
 def test_parser_detects_p_values() -> None:
     parsed = parse("P1 0.12 P2=0.18")
 

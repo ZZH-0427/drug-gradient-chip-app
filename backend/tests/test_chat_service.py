@@ -439,6 +439,304 @@ def test_no_position_chinese_field_remains_ambiguous_without_mutation() -> None:
     assert store.get(session.session_id).forward_draft.summary() == before
 
 
+def test_composite_buildtest5_prompt_collects_forward_chip_and_inlet_fields() -> None:
+    adapter = FakeForwardAdapter()
+    service = make_service(adapter=adapter)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8bf7\u5e2e\u6211\u8fdb\u884c6\u4e2a\u82af\u7247\u7684\u6b63\u5411\u9884\u6d4b"
+                r"\uff0c\u5165\u53e31\u9ad8\u6d53\u5ea6\u3002"
+                r"\u7b2c1\u4e2a\u82af\u7247\u7c7b\u578b\u662f5to4\uff0c"
+                r"\u7b2c1\u4e2a\u82af\u7247\u5de6\u5bbd\u5ea6\u662f.261\uff0c"
+                r"\u7b2c1\u4e2a\u82af\u7247\u53f3\u5bbd\u5ea6\u662f.138\uff0c"
+                r"\u7b2c1\u4e2a\u82af\u7247\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f31\uff0c"
+                r"\u7b2c1\u4e2a\u82af\u7247\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f25\u3002"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "collecting"
+    assert response.forward_prediction is None
+    assert adapter.calls == 0
+    assert response.parameter_summary["chip_count"] == 6
+    assert response.parameter_summary["inlet1"] == 1.0
+    assert response.parameter_summary["inlet2"] == 0.0
+    chip = response.parameter_summary["chips"][0]
+    assert chip["chip_type"] == "5to4"
+    assert chip["left_width_mm"] == 0.261
+    assert chip["right_width_mm"] == 0.138
+    assert chip["left_bend_straight_distance_mm"] == 31.0
+    assert chip["right_bend_straight_distance_mm"] == 25.0
+    assert "chips.2.chip_type" in response.missing_fields
+
+
+def test_consistent_dual_inlet_composite_relations_are_accepted() -> None:
+    service = make_service()
+
+    high_low = service.handle_message(
+        request(
+            zh(
+                r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b\uff0c"
+                r"\u5165\u53e31\u9ad8\u6d53\u5ea6\uff0c\u5165\u53e32\u4f4e\u6d53\u5ea6"
+            )
+        )
+    )
+    low_high = service.handle_message(
+        request(
+            zh(
+                r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b\uff0c"
+                r"\u5165\u53e31\u4f4e\u6d53\u5ea6\uff0c\u5165\u53e32\u9ad8\u6d53\u5ea6"
+            )
+        )
+    )
+
+    assert high_low.error is None
+    assert high_low.parameter_summary["chip_count"] == 6
+    assert high_low.parameter_summary["inlet1"] == 1.0
+    assert high_low.parameter_summary["inlet2"] == 0.0
+    assert low_high.error is None
+    assert low_high.parameter_summary["chip_count"] == 6
+    assert low_high.parameter_summary["inlet1"] == 0.0
+    assert low_high.parameter_summary["inlet2"] == 1.0
+
+
+def test_conflicting_dual_inlet_composite_rejects_without_partial_mutation() -> None:
+    store = ConversationSessionStore()
+    service = make_service(store=store)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b\uff0c"
+                r"\u5165\u53e31\u9ad8\u6d53\u5ea6\uff0c\u5165\u53e32\u9ad8\u6d53\u5ea6\uff0c"
+                r"\u7b2c1\u4e2a\u82af\u7247\u7c7b\u578b\u662f5to4"
+            )
+        )
+    )
+
+    session = store.get(response.session_id)
+    assert response.error is not None
+    assert response.error.code == "AMBIGUOUS_INPUT"
+    assert response.parameter_summary == {}
+    assert "recorded" not in response.assistant_message.lower()
+    assert "\u5df2\u8bb0\u5f55" not in response.assistant_message
+    assert session is not None
+    assert session.forward_draft.chip_count is None
+    assert session.forward_draft.inlet1 is None
+    assert session.forward_draft.inlet2 is None
+    assert session.forward_draft.chips == {}
+    assert session.active_chip_position is None
+
+
+def test_low_low_and_english_high_high_inlet_conflicts_are_rejected() -> None:
+    service = make_service()
+
+    low_low = service.handle_message(
+        request(
+            zh(
+                r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b\uff0c"
+                r"\u5165\u53e31\u4f4e\u6d53\u5ea6\uff0c\u5165\u53e32\u4f4e\u6d53\u5ea6"
+            )
+        )
+    )
+    english = service.handle_message(request("use 6 chips forward, inlet 1 high, inlet 2 high", language="en"))
+
+    assert low_low.error is not None
+    assert low_low.error.code == "AMBIGUOUS_INPUT"
+    assert low_low.parameter_summary == {}
+    assert english.error is not None
+    assert english.error.code == "AMBIGUOUS_INPUT"
+    assert english.parameter_summary == {}
+
+
+def test_contextual_omitted_chip_fields_apply_to_active_chip() -> None:
+    store = ConversationSessionStore()
+    service = make_service(store=store)
+
+    first = service.handle_message(request(zh(r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b")))
+    session_id = first.session_id
+    service.handle_message(request(zh(r"\u5165\u53e31\u9ad8\u6d53\u5ea6"), session_id))
+    service.handle_message(request(zh(r"\u7b2c\u4e00\u4e2a\u82af\u7247\u7c7b\u578b\u662f5to4"), session_id))
+    service.handle_message(request(zh(r"\u5de6\u5bbd\u5ea6\u662f0.261"), session_id))
+    service.handle_message(request(zh(r"\u53f3\u5bbd\u5ea6\u662f0.138"), session_id))
+    service.handle_message(request(zh(r"\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f31"), session_id))
+    service.handle_message(request(zh(r"\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f25"), session_id))
+    service.handle_message(request(zh(r"\u7b2c\u4e8c\u4e2a\u82af\u7247\u7c7b\u578b\u662f4to2"), session_id))
+    service.handle_message(request(zh(r"\u5de6\u5bbd\u5ea6\u662f0.089"), session_id))
+    service.handle_message(request(zh(r"\u53f3\u5bbd\u5ea6\u662f0.04"), session_id))
+    service.handle_message(request(zh(r"\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f25"), session_id))
+    response = service.handle_message(request(zh(r"\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f13"), session_id))
+
+    session = store.get(session_id)
+    assert session is not None
+    assert session.active_chip_position == 2
+    chip1 = session.forward_draft.chips[1]
+    chip2 = session.forward_draft.chips[2]
+    assert chip1.chip_type == "5to4"
+    assert chip1.left_width_mm == 0.261
+    assert chip1.right_width_mm == 0.138
+    assert chip1.left_bend_straight_distance_mm == 31.0
+    assert chip1.right_bend_straight_distance_mm == 25.0
+    assert chip2.chip_type == "4to2"
+    assert chip2.left_width_mm == 0.089
+    assert chip2.right_width_mm == 0.04
+    assert chip2.left_bend_straight_distance_mm == 25.0
+    assert chip2.right_bend_straight_distance_mm == 13.0
+    assert response.error is None
+
+
+def test_single_message_omitted_fields_follow_last_explicit_chip_position() -> None:
+    store = ConversationSessionStore()
+    session = store.create("zh-CN")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    service = make_service(store=store)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u7b2c1\u4e2a\u82af\u7247\u7c7b\u578b\u662f5to4\uff0c"
+                r"\u5de6\u5bbd\u5ea6\u662f.261\uff0c\u53f3\u5bbd\u5ea6\u662f.138\uff0c"
+                r"\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f31\uff0c"
+                r"\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f25"
+            ),
+            session.session_id,
+        )
+    )
+
+    chip = store.get(session.session_id).forward_draft.chips[1]
+    assert response.error is None
+    assert store.get(session.session_id).active_chip_position == 1
+    assert chip.chip_type == "5to4"
+    assert chip.left_width_mm == 0.261
+    assert chip.right_width_mm == 0.138
+    assert chip.left_bend_straight_distance_mm == 31.0
+    assert chip.right_bend_straight_distance_mm == 25.0
+
+
+def test_single_message_switches_active_chip_between_multiple_explicit_positions() -> None:
+    store = ConversationSessionStore()
+    session = store.create("zh-CN")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    service = make_service(store=store)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u7b2c1\u4e2a\u82af\u7247\u7c7b\u578b\u662f5to4\uff0c"
+                r"\u5de6\u5bbd\u5ea6\u662f.261\uff0c"
+                r"\u7b2c2\u4e2a\u82af\u7247\u7c7b\u578b\u662f4to2\uff0c"
+                r"\u5de6\u5bbd\u5ea6\u662f.089"
+            ),
+            session.session_id,
+        )
+    )
+
+    draft = store.get(session.session_id).forward_draft
+    assert response.error is None
+    assert store.get(session.session_id).active_chip_position == 2
+    assert draft.chips[1].chip_type == "5to4"
+    assert draft.chips[1].left_width_mm == 0.261
+    assert draft.chips[2].chip_type == "4to2"
+    assert draft.chips[2].left_width_mm == 0.089
+
+
+def test_language_switch_preserves_active_chip_context() -> None:
+    store = ConversationSessionStore()
+    session = store.create("zh-CN")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    service = make_service(store=store)
+
+    service.handle_message(request(zh(r"\u7b2c1\u4e2a\u82af\u7247\u5de6\u5bbd\u5ea6\u662f.261"), session.session_id))
+    service.handle_message(request(zh(r"\u5207\u6362\u82f1\u6587"), session.session_id, "zh-CN"))
+    response = service.handle_message(request("right width is .138", session.session_id, "en"))
+
+    draft = store.get(session.session_id).forward_draft
+    assert response.error is None
+    assert store.get(session.session_id).language == "en"
+    assert store.get(session.session_id).active_chip_position == 1
+    assert draft.chips[1].left_width_mm == 0.261
+    assert draft.chips[1].right_width_mm == 0.138
+
+
+def test_reset_mode_switch_and_successful_shrink_clear_active_chip_context() -> None:
+    store = ConversationSessionStore()
+    session = store.create("zh-CN")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    session.active_chip_position = 6
+    service = make_service(store=store)
+
+    shrink = service.handle_message(request(zh(r"\u8bbe\u7f6e4\u4e2a\u82af\u7247"), session.session_id))
+    assert shrink.error is None
+    assert store.get(session.session_id).active_chip_position is None
+
+    service.handle_message(request(zh(r"\u7b2c1\u4e2a\u82af\u7247\u5de6\u5bbd\u5ea6\u662f.1"), session.session_id))
+    reverse = service.handle_message(request(zh(r"\u5f00\u59cb\u53cd\u5411\u9884\u6d4b"), session.session_id))
+    assert reverse.error is None
+    assert store.get(session.session_id).active_mode == "reverse"
+    assert store.get(session.session_id).active_chip_position is None
+
+    store.get(session.session_id).active_chip_position = 1
+    reset = service.handle_message(request("reset", session.session_id, "en"))
+    assert reset.error is None
+    assert store.get(session.session_id).active_chip_position is None
+
+
+def test_invalid_contextual_composite_does_not_partially_mutate_draft_or_active_chip() -> None:
+    store = ConversationSessionStore()
+    session = store.create("zh-CN")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(4)
+    session.active_chip_position = 2
+    before = session.forward_draft.summary()
+    service = make_service(store=store)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u7b2c1\u4e2a\u82af\u7247\u5de6\u5bbd\u5ea6\u662f.1\uff0c"
+                r"\u7b2c5\u4e2a\u82af\u7247\u53f3\u5bbd\u5ea6\u662f.138"
+            ),
+            session.session_id,
+        )
+    )
+
+    session = store.get(session.session_id)
+    assert response.error is not None
+    assert response.error.code == "CHIP_INDEX_OUT_OF_RANGE"
+    assert session.forward_draft.summary() == before
+    assert session.active_chip_position == 2
+
+
+def test_out_of_range_or_invalid_width_context_update_does_not_change_active_chip() -> None:
+    store = ConversationSessionStore()
+    session = store.create("zh-CN")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(4)
+    session.active_chip_position = 2
+    before = session.forward_draft.summary()
+    service = make_service(store=store)
+
+    out_of_range = service.handle_message(
+        request(zh(r"\u7b2c5\u4e2a\u82af\u7247\u53f3\u5bbd\u5ea6\u662f.138"), session.session_id)
+    )
+    invalid_width = service.handle_message(request(zh(r"\u53f3\u5bbd\u5ea6\u662f0.311"), session.session_id))
+
+    session = store.get(session.session_id)
+    assert out_of_range.error is not None
+    assert out_of_range.error.code == "CHIP_INDEX_OUT_OF_RANGE"
+    assert invalid_width.error is not None
+    assert invalid_width.error.code == "VALIDATION_ERROR"
+    assert session.forward_draft.summary() == before
+    assert session.active_chip_position == 2
+
+
 def test_complete_six_chip_chinese_ordinal_forward_draft_reaches_confirmation() -> None:
     service = make_service(adapter=FakeForwardAdapter())
     session_id = None
@@ -484,6 +782,53 @@ def test_complete_six_chip_chinese_ordinal_forward_draft_reaches_confirmation() 
     assert chips[0]["left_bend_straight_distance_mm"] == 31.0
     assert chips[0]["right_bend_straight_distance_mm"] == 25.0
     assert chips[5]["chip_type"] == "3to1"
+
+
+def test_complete_six_chip_contextual_forward_draft_reaches_confirmation_without_model_call() -> None:
+    adapter = FakeForwardAdapter()
+    service = make_service(adapter=adapter)
+    session_id = None
+    chip_rows = [
+        (1, "5to4", 0.261, 0.138, 31, 25),
+        (2, "4to2", 0.089, 0.04, 25, 13),
+        (3, "1to6", 0.212, 0.236, 7, 31),
+        (4, "2to4", 0.31, 0.163, 13, 25),
+        (5, "6to3", 0.187, 0.285, 37, 19),
+        (6, "3to1", 0.05, 0.114, 13, 7),
+    ]
+    messages = [
+        zh(r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b"),
+        zh(r"\u5165\u53e31\u9ad8\u6d53\u5ea6"),
+    ]
+    for position, chip_type, left_width, right_width, left_distance, right_distance in chip_rows:
+        messages.extend(
+            [
+                zh(rf"\u7b2c{position}\u4e2a\u82af\u7247\u7c7b\u578b\u662f{chip_type}"),
+                zh(rf"\u5de6\u5bbd\u5ea6\u662f{left_width}"),
+                zh(rf"\u53f3\u5bbd\u5ea6\u662f{right_width}"),
+                zh(rf"\u5de6\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f{left_distance}"),
+                zh(rf"\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb\u662f{right_distance}"),
+            ]
+        )
+
+    response = None
+    for message in messages:
+        response = service.handle_message(request(message, session_id))
+        session_id = response.session_id
+        assert response.forward_prediction is None
+        assert adapter.calls == 0
+
+    assert response is not None
+    assert response.state == "ready_for_confirmation"
+    assert response.confirmation is not None
+    assert response.missing_fields == []
+    assert response.confirmation.summary["chip_count"] == 6
+    chips = response.confirmation.summary["chips"]
+    assert chips[0]["chip_type"] == "5to4"
+    assert chips[0]["left_width_mm"] == 0.261
+    assert chips[0]["right_width_mm"] == 0.138
+    assert chips[5]["chip_type"] == "3to1"
+    assert chips[5]["right_bend_straight_distance_mm"] == 7.0
 
 
 def test_shrinking_chip_count_with_tail_parameters_is_rejected_without_deletion() -> None:
