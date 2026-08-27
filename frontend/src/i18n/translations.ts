@@ -148,6 +148,8 @@ export const zhCN = {
     cancelTask: "\u53d6\u6d88\u4efb\u52a1",
     clarification: "\u9700\u8981\u6f84\u6e05",
     genericError: "\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+    reverseTargetPositionCount: "\u76ee\u6807\u70b9\u4f4d\u6570\u91cf",
+    fixedSixTargetPositions: "6\uff08\u56fa\u5b9a\uff09",
   },
   status: {
     idle: "未提交",
@@ -334,6 +336,8 @@ export const en = {
     cancelTask: "Cancel Task",
     clarification: "Clarification",
     genericError: "The request failed. Please try again.",
+    reverseTargetPositionCount: "Target Positions",
+    fixedSixTargetPositions: "6 (fixed)",
   },
   status: {
     idle: "Not Submitted",

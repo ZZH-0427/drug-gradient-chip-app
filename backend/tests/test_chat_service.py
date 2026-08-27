@@ -259,6 +259,63 @@ def test_reverse_installed_smoke_targets_are_ready_without_inlet() -> None:
     assert manager.calls == 0
 
 
+def test_reverse_targets_with_dunhao_and_sentence_period_are_ready_without_inlet() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\uff0c"
+                r"\u76ee\u6807\u6d53\u5ea6\u662f 0.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.confirmation is not None
+    assert response.confirmation.mode == "reverse"
+    assert response.missing_fields == []
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_active_reverse_accepts_target_phrase_without_new_reverse_keyword() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    initial = service.handle_message(request(zh(r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b")))
+    response = service.handle_message(
+        request(
+            zh(r"\u76ee\u6807\u6d53\u5ea6\u662f 0.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"),
+            initial.session_id,
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.confirmation is not None
+    assert response.confirmation.mode == "reverse"
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_reverse_targets_ignore_fixed_position_count_before_target_anchor() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u5e2e\u6211\u505a\u4e00\u4e0b\u53cd\u5411\u9884\u6d4b\uff0c"
+                r"\u6211\u5e0c\u671b6\u4e2a\u4f4d\u7f6e\u7684"
+                r"\u76ee\u6807\u6d53\u5ea6\u5206\u522b\u662f.08\u3001.14\u3001.25\u3001.38\u3001.48\u548c.58\u3002"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert 6.0 not in response.parameter_summary["target_concentrations"]
+
+
 def test_reverse_multiline_targets_are_ready_without_inlet() -> None:
     service = make_service(reverse_manager=FakeReverseTaskManager())
 
@@ -280,6 +337,69 @@ def test_reverse_multiline_targets_are_ready_without_inlet() -> None:
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
     assert "inlet1" not in response.parameter_summary
     assert "inlet2" not in response.parameter_summary
+
+
+def test_five_reverse_targets_remain_collecting_without_model_call() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\n"
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a\n"
+                r"0.08\n0.14\n0.25\n0.38\n0.48"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["target_concentrations"]
+    assert manager.calls == 0
+
+
+def test_seven_reverse_targets_are_not_truncated_to_first_six() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\uff0c"
+                r"\u76ee\u6807\u6d53\u5ea6\u662f0.08 0.14 0.25 0.38 0.48 0.58 0.63"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["target_concentrations"]
+    assert response.parameter_summary["target_concentrations"] == []
+    assert manager.calls == 0
+
+
+def test_malformed_reverse_target_token_is_not_accepted_as_complete_request() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\uff0c"
+                r"\u76ee\u6807\u6d53\u5ea6\u662f1.2.3 0.1 0.2 0.3 0.4 0.5"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["target_concentrations"]
+    assert response.parameter_summary["target_concentrations"] == []
+    assert manager.calls == 0
 
 
 def test_confirmed_reverse_does_not_fabricate_inlet_for_task_creation() -> None:

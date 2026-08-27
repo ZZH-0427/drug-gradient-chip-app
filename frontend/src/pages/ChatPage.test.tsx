@@ -315,6 +315,38 @@ describe("Assistant structured cards", () => {
     expect(messageBox()).toHaveFocus();
   });
 
+  it("renders reverse target summaries as fixed six labeled positions", async () => {
+    const user = userEvent.setup();
+    mockFetch(
+      jsonResponse(
+        chatResponse({
+          state: "ready_for_confirmation",
+          assistant_message: "Ready.",
+          confirmation: { mode: "reverse", summary: reverseSummary() },
+          parameter_summary: reverseSummary(),
+        }),
+      ),
+    );
+    renderChatPage();
+
+    await sendMessage(user, "show reverse parameters");
+
+    const cards = await screen.findAllByRole("region", { name: "Parameter Summary" });
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(within(card).getByText("Target Positions")).toBeInTheDocument();
+      expect(within(card).getByText("6 (fixed)")).toBeInTheDocument();
+      expect(within(card).getAllByText("Target Concentration")).toHaveLength(1);
+      expect(within(card).getByRole("cell", { name: "1" })).toBeInTheDocument();
+      expect(within(card).getByRole("cell", { name: "6" })).toBeInTheDocument();
+      expect(within(card).getByRole("cell", { name: "0.1" })).toBeInTheDocument();
+      expect(within(card).getByRole("cell", { name: "0.6" })).toBeInTheDocument();
+      expect(within(card).queryByText(/^Target Concentration:/)).not.toBeInTheDocument();
+      expect(within(card).queryByText("Sample Name")).not.toBeInTheDocument();
+      expect(within(card).queryByText("Inlet Selection")).not.toBeInTheDocument();
+    }
+  });
+
   it("renders forward_prediction rows from the backend response", async () => {
     const user = userEvent.setup();
     mockFetch(
@@ -823,10 +855,14 @@ function completeForwardSummary() {
 }
 
 function reverseSummary() {
+  const targets = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
   return {
-    inlet1: 0,
-    inlet2: 1,
-    target_concentrations: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+    target_position_count: 6,
+    target_concentrations: targets,
+    target_positions: targets.map((target, index) => ({
+      position: index + 1,
+      target_concentration: target,
+    })),
   };
 }
 

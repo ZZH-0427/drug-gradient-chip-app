@@ -76,6 +76,8 @@ ZH_RIGHT_CURVED_STRAIGHT_DISTANCE = "\u53f3\u5f2f\u66f2\u76f4\u9053\u8ddd\u79bb"
 ZH_POSITION = "\u4f4d\u7f6e"
 ZH_TARGET = "\u76ee\u6807"
 ZH_TARGET_CONCENTRATION = "\u76ee\u6807\u6d53\u5ea6"
+ZH_CONCENTRATION = "\u6d53\u5ea6"
+ZH_SEPARATELY = "\u5206\u522b"
 
 CHINESE_DIGITS = {
     "\u4e00": 1,
@@ -567,10 +569,46 @@ def parse_chip_field(text: str) -> str | None:
     return None
 
 
+REVERSE_TARGET_TOKEN_PATTERN = re.compile(r"(?:\d+\.\d+|\d+|\.\d+)")
+REVERSE_TARGET_TOKEN_SPLIT_PATTERN = re.compile(r"(?:\band\b|[,\s;:\u3001\u548c]+)+", flags=re.IGNORECASE)
+
+
 def parse_reverse_targets(text: str) -> list[float] | None:
-    if not has_any(text, ["target", ZH_TARGET_CONCENTRATION, ZH_TARGET]):
+    region = reverse_target_region(text)
+    if region is None:
         return None
-    numbers = extract_numbers(text)
+    numbers = parse_reverse_target_numbers(region)
+    if numbers is None:
+        return None
     if len(numbers) == 6:
         return numbers
+    return None
+
+
+def parse_reverse_target_numbers(region: str) -> list[float] | None:
+    numbers: list[float] = []
+    for raw_token in REVERSE_TARGET_TOKEN_SPLIT_PATTERN.split(region):
+        token = raw_token.strip()
+        if not token or not any(character.isdigit() for character in token):
+            continue
+        candidate = token
+        if candidate.endswith(".") and candidate.count(".") >= 2:
+            candidate = candidate[:-1]
+        if not REVERSE_TARGET_TOKEN_PATTERN.fullmatch(candidate):
+            return None
+        numbers.append(float(candidate))
+    return numbers
+
+
+def reverse_target_region(text: str) -> str | None:
+    anchor_patterns = [
+        rf"{ZH_TARGET_CONCENTRATION}\s*(?:{ZH_SEPARATELY})?\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
+        rf"{ZH_CONCENTRATION}\s*{ZH_SEPARATELY}\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
+        r"target\s+concentrations?\s*(?:are|is|:|=)?",
+        r"targets?\s*(?:are|is|:|=)?",
+    ]
+    for pattern in anchor_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return text[match.end() :]
     return None

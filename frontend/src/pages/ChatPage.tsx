@@ -267,6 +267,52 @@ function ParameterSummaryCard({
   const chips = Array.isArray(summary.chips) ? summary.chips : [];
   const targets = Array.isArray(summary.target_concentrations) ? summary.target_concentrations : [];
   const missing = Array.isArray(summary.missing_fields) ? summary.missing_fields : [];
+  const targetPositions = reverseTargetPositions(summary, targets);
+  const isReverseSummary = targetPositions.length > 0 && chips.length === 0;
+  if (isReverseSummary) {
+    return (
+      <section
+        className={embedded ? "chat-parameter-card embedded" : "chat-parameter-card tool-panel"}
+        aria-label={t("assistant.parameterSummary")}
+      >
+        <h2>{t("assistant.parameterSummary")}</h2>
+        <dl className="summary-list">
+          <div>
+            <dt>{t("assistant.reverseTargetPositionCount")}</dt>
+            <dd>{t("assistant.fixedSixTargetPositions")}</dd>
+          </div>
+        </dl>
+        <div className="table-wrap">
+          <table className="compact-table">
+            <thead>
+              <tr>
+                <th>{t("common.position")}</th>
+                <th>{t("common.targetConcentration")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {targetPositions.map((target, index) => (
+                <tr key={String(target.position ?? index + 1)}>
+                  <td>{displayValue(target.position ?? index + 1)}</td>
+                  <td>{displayValue(target.target_concentration)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {missing.length > 0 ? (
+          <div className="missing-list">
+            <strong>{t("assistant.missingParameters")}</strong>
+            <ul>
+              {missing.map((field) => (
+                <li key={String(field)}>{String(field)}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
   return (
     <section
       className={embedded ? "chat-parameter-card embedded" : "chat-parameter-card tool-panel"}
@@ -339,6 +385,21 @@ function ParameterSummaryCard({
       ) : null}
     </section>
   );
+}
+
+function reverseTargetPositions(summary: ParameterSummary, targets: unknown[]) {
+  if (Array.isArray(summary.target_positions)) {
+    return summary.target_positions
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map((item, index) => ({
+        position: item.position ?? index + 1,
+        target_concentration: item.target_concentration,
+      }));
+  }
+  return targets.map((target, index) => ({
+    position: index + 1,
+    target_concentration: target,
+  }));
 }
 
 function ConfirmationCard({

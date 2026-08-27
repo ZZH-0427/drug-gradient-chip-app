@@ -198,6 +198,46 @@ def test_parser_detects_reverse_six_target_concentrations() -> None:
     assert parsed.fields["target_concentrations"] == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
 
 
+def test_parser_extracts_reverse_targets_after_target_anchor_only() -> None:
+    parsed = parse(
+        zh(
+            r"\u5e2e\u6211\u505a\u4e00\u4e0b\u53cd\u5411\u9884\u6d4b\uff0c"
+            r"\u6211\u5e0c\u671b6\u4e2a\u4f4d\u7f6e\u7684"
+            r"\u76ee\u6807\u6d53\u5ea6\u5206\u522b\u662f.08\u3001.14\u3001.25\u3001.38\u3001.48\u548c.58\u3002"
+        )
+    )
+
+    assert parsed.intent == "set_target_concentration"
+    assert parsed.fields["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_parser_rejects_malformed_reverse_target_tokens() -> None:
+    for message in [
+        "target concentrations are 1.2.3 0.1 0.2 0.3 0.4 0.5",
+        zh(r"\u76ee\u6807\u6d53\u5ea6\u662f0..1 0.2 0.3 0.4 0.5 0.6"),
+        zh(r"\u76ee\u6807\u6d53\u5ea6\u662f.1.2 0.2 0.3 0.4 0.5 0.6"),
+        "target concentrations are 1. 0.2 0.3 0.4 0.5 0.6",
+    ]:
+        parsed = parse(message)
+
+        assert parsed.intent != "set_target_concentration"
+        assert "target_concentrations" not in parsed.fields
+
+
+def test_parser_accepts_reverse_targets_with_sentence_period() -> None:
+    parsed = parse("target concentrations are 0.08 0.14 0.25 0.38 0.48 0.58.")
+
+    assert parsed.intent == "set_target_concentration"
+    assert parsed.fields["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_parser_accepts_reverse_targets_with_omitted_leading_zero_and_sentence_period() -> None:
+    parsed = parse(zh(r"\u76ee\u6807\u6d53\u5ea6\u662f.08 .14 .25 .38 .48 .58\u3002"))
+
+    assert parsed.intent == "set_target_concentration"
+    assert parsed.fields["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
 def test_parser_marks_ambiguous_numeric_input() -> None:
     parsed = parse(zh(r"\u6539\u62100.2"))
 

@@ -143,7 +143,15 @@ class ReverseDraft:
         return not self.missing_fields()
 
     def summary(self) -> dict[str, Any]:
-        return {"target_concentrations": list(self.target_concentrations)}
+        targets = list(self.target_concentrations)
+        return {
+            "target_position_count": 6,
+            "target_concentrations": targets,
+            "target_positions": [
+                {"position": index + 1, "target_concentration": concentration}
+                for index, concentration in enumerate(targets)
+            ],
+        }
 
     def to_request(self) -> ReverseChatRequest:
         return ReverseChatRequest(target_concentrations=list(self.target_concentrations))
