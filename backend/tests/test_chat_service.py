@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
 from app.chat.schemas import ChatMessageRequest
 from app.chat.service import ChatService
 from app.chat.session import ChipDraft, ConversationSessionStore
 from app.core.errors import ModelErrorCode, ModelRuntimeError
+from app.model_runtime import reverse_tasks
+from app.model_runtime import reverse_worker
+from app.model_runtime.reverse_tasks import ReverseTaskManager
 from app.schemas.forward import ForwardPredictionItem, ForwardPredictionResponse
 from app.schemas.reverse import ReverseTaskCreatedResponse
 
@@ -89,6 +97,35 @@ def assert_chip(
     assert chip["right_width_mm"] == right_width
     assert chip["left_bend_straight_distance_mm"] == left_distance
     assert chip["right_bend_straight_distance_mm"] == right_distance
+
+
+def fake_reverse_result(
+    *,
+    inlet1: float,
+    inlet2: float,
+    target_concentrations: list[float],
+    mae: float,
+    rmse: float | None = None,
+    maxae: float | None = None,
+    spearman: float = 0.99,
+    screening_pass: bool = True,
+) -> dict[str, Any]:
+    return {
+        "inlet1": inlet1,
+        "inlet2": inlet2,
+        "target_concentrations": list(target_concentrations),
+        "chips": [],
+        "metrics": {
+            "mae": mae,
+            "rmse": mae if rmse is None else rmse,
+            "maxae": mae if maxae is None else maxae,
+            "spearman": spearman,
+            "internal_screening_pass": screening_pass,
+            "selected_restart": 0,
+        },
+        "warnings": [],
+        "notes": [],
+    }
 
 
 def fill_complete_forward_session(store: ConversationSessionStore) -> str:
@@ -191,6 +228,450 @@ def test_complete_reverse_calls_fake_task_manager_once() -> None:
     assert manager.calls == 1
     assert response.reverse_task is not None
     assert response.reverse_task.task_id == "task-1"
+
+
+def test_reverse_installed_smoke_targets_are_ready_without_inlet() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b "
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a0.08 0.14 0.25 0.38 0.48 0.58"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.confirmation is not None
+    assert response.confirmation.mode == "reverse"
+    assert response.missing_fields == []
+    assert "inlet" not in response.missing_fields
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert "inlet1" not in response.parameter_summary
+    assert "inlet2" not in response.parameter_summary
+    session = service.sessions.get(response.session_id)
+    assert session is not None
+    assert session.reverse_draft.inlet1 is None
+    assert session.reverse_draft.inlet2 is None
+    assert manager.calls == 0
+
+
+def test_reverse_multiline_targets_are_ready_without_inlet() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\n"
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a\n"
+                r"0.08\n0.14\n0.25\n0.38\n0.48\n0.58"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.confirmation is not None
+    assert response.confirmation.mode == "reverse"
+    assert response.missing_fields == []
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert "inlet1" not in response.parameter_summary
+    assert "inlet2" not in response.parameter_summary
+
+
+def test_confirmed_reverse_does_not_fabricate_inlet_for_task_creation() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    ready = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b "
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a0.08 0.14 0.25 0.38 0.48 0.58"
+            )
+        )
+    )
+    response = service.handle_message(request(zh(r"\u786e\u8ba4"), ready.session_id))
+
+    assert response.error is None
+    assert response.state == "running"
+    assert manager.calls == 1
+    created_request = manager.requests[0]
+    assert created_request.target_concentrations == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert not hasattr(created_request, "inlet1")
+    assert not hasattr(created_request, "inlet2")
+
+
+def test_reverse_installed_smoke_creates_real_task_without_fabricated_inlet(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    class FakeSettings:
+        def validate_assets(self) -> None:
+            return None
+
+        def checkpoint_path(self, seed: int) -> Path:
+            assert seed == 44
+            return tmp_path / "checkpoint.pt"
+
+    class FakeProcess:
+        pid = 24680
+
+    captured: dict[str, Any] = {}
+
+    def fake_popen(args: list[str], **kwargs: object) -> FakeProcess:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr(reverse_tasks.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(reverse_tasks, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(reverse_tasks, "process_exists", lambda pid: pid == FakeProcess.pid)
+    monkeypatch.setattr(reverse_tasks.ForwardModelSettings, "from_env", staticmethod(lambda: FakeSettings()))
+
+    manager = ReverseTaskManager(root=tmp_path / "tasks")
+    service = make_service(reverse_manager=manager)
+    ready = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b "
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a0.08 0.14 0.25 0.38 0.48 0.58"
+            )
+        )
+    )
+    response = service.handle_message(request(zh(r"\u786e\u8ba4"), ready.session_id))
+
+    assert response.error is None
+    assert response.state == "running"
+    assert response.reverse_task is not None
+    assert response.reverse_task.status == "running"
+    assert response.reverse_task.task_id
+    request_path = tmp_path / "tasks" / response.reverse_task.task_id / "request.json"
+    payload = json.loads(request_path.read_text(encoding="utf-8"))
+    assert payload == {"target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]}
+    assert "inlet1" not in payload
+    assert "inlet2" not in payload
+    assert captured["args"][1:3] == ["-m", "app.model_runtime.reverse_worker"]
+    assert captured["kwargs"]["shell"] is False
+    calls: list[dict[str, Any]] = []
+
+    def fake_run_reverse_design(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        mae = 0.02 if kwargs["inlet1"] == 1.0 else 0.01
+        return fake_reverse_result(
+            inlet1=float(kwargs["inlet1"]),
+            inlet2=float(kwargs["inlet2"]),
+            target_concentrations=list(kwargs["target_concentrations"]),
+            mae=mae,
+        )
+
+    result_path = tmp_path / "tasks" / response.reverse_task.task_id / "result.json"
+    monkeypatch.setattr(reverse_worker, "run_reverse_design", fake_run_reverse_design)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reverse_worker",
+            "--request-json",
+            str(request_path),
+            "--result-json",
+            str(result_path),
+            "--checkpoint",
+            str(tmp_path / "checkpoint.pt"),
+            "--device",
+            "cpu",
+            "--application-root",
+            str(tmp_path),
+        ],
+    )
+
+    reverse_worker.main()
+
+    assert [(call["inlet1"], call["inlet2"]) for call in calls] == [(1.0, 0.0), (0.0, 1.0)]
+    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result_payload["ok"] is True
+    assert result_payload["result"]["inlet1"] == 0.0
+    assert result_payload["result"]["inlet2"] == 1.0
+
+
+def test_legacy_reverse_worker_request_runs_only_specified_inlet(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    request_path = tmp_path / "request.json"
+    result_path = tmp_path / "result.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "inlet1": 1.0,
+                "inlet2": 0.0,
+                "target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58],
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[dict[str, Any]] = []
+
+    def fake_run_reverse_design(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return fake_reverse_result(
+            inlet1=float(kwargs["inlet1"]),
+            inlet2=float(kwargs["inlet2"]),
+            target_concentrations=list(kwargs["target_concentrations"]),
+            mae=0.01,
+        )
+
+    monkeypatch.setattr(reverse_worker, "run_reverse_design", fake_run_reverse_design)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reverse_worker",
+            "--request-json",
+            str(request_path),
+            "--result-json",
+            str(result_path),
+            "--checkpoint",
+            str(tmp_path / "checkpoint.pt"),
+            "--device",
+            "cpu",
+            "--application-root",
+            str(tmp_path),
+        ],
+    )
+
+    reverse_worker.main()
+
+    assert [(call["inlet1"], call["inlet2"]) for call in calls] == [(1.0, 0.0)]
+    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result_payload["ok"] is True
+    assert result_payload["result"]["inlet1"] == 1.0
+    assert result_payload["result"]["inlet2"] == 0.0
+
+
+def test_reverse_worker_rejects_malformed_requests_without_optimizer_call(monkeypatch: Any) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_run_reverse_design(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {}
+
+    monkeypatch.setattr(reverse_worker, "run_reverse_design", fake_run_reverse_design)
+    malformed_requests = [
+        {"inlet1": 1.0, "target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]},
+        {"inlet2": 0.0, "target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]},
+        {},
+        {"target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48]},
+        {"target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58, 0.63]},
+    ]
+
+    for malformed_request in malformed_requests:
+        try:
+            reverse_worker.run_reverse_request(
+                malformed_request,
+                device="cpu",
+                checkpoint_path=Path("checkpoint.pt"),
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Malformed request unexpectedly succeeded: {malformed_request}")
+
+    assert calls == []
+
+
+def test_reverse_worker_screening_pass_beats_better_numeric_metrics() -> None:
+    targets = [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    failed_screening = fake_reverse_result(
+        inlet1=1.0,
+        inlet2=0.0,
+        target_concentrations=targets,
+        mae=0.001,
+        rmse=0.001,
+        maxae=0.001,
+        spearman=1.0,
+        screening_pass=False,
+    )
+    passed_screening = fake_reverse_result(
+        inlet1=0.0,
+        inlet2=1.0,
+        target_concentrations=targets,
+        mae=0.1,
+        rmse=0.1,
+        maxae=0.1,
+        spearman=0.5,
+        screening_pass=True,
+    )
+
+    selected = min([failed_screening, passed_screening], key=reverse_worker.reverse_result_rank)
+
+    assert selected is passed_screening
+
+
+def test_reverse_worker_numeric_ranking_uses_mae_then_rmse_then_spearman() -> None:
+    targets = [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    higher_mae = fake_reverse_result(
+        inlet1=1.0,
+        inlet2=0.0,
+        target_concentrations=targets,
+        mae=0.02,
+        rmse=0.001,
+        maxae=0.001,
+        spearman=1.0,
+    )
+    lower_mae = fake_reverse_result(
+        inlet1=0.0,
+        inlet2=1.0,
+        target_concentrations=targets,
+        mae=0.01,
+        rmse=0.1,
+        maxae=0.1,
+        spearman=0.1,
+    )
+    lower_rmse = fake_reverse_result(
+        inlet1=1.0,
+        inlet2=0.0,
+        target_concentrations=targets,
+        mae=0.01,
+        rmse=0.02,
+        maxae=0.2,
+        spearman=0.1,
+    )
+    higher_rmse = fake_reverse_result(
+        inlet1=0.0,
+        inlet2=1.0,
+        target_concentrations=targets,
+        mae=0.01,
+        rmse=0.03,
+        maxae=0.001,
+        spearman=1.0,
+    )
+    lower_spearman = fake_reverse_result(
+        inlet1=1.0,
+        inlet2=0.0,
+        target_concentrations=targets,
+        mae=0.01,
+        rmse=0.02,
+        maxae=0.1,
+        spearman=0.4,
+    )
+    higher_spearman = fake_reverse_result(
+        inlet1=0.0,
+        inlet2=1.0,
+        target_concentrations=targets,
+        mae=0.01,
+        rmse=0.02,
+        maxae=0.1,
+        spearman=0.9,
+    )
+
+    assert min([higher_mae, lower_mae], key=reverse_worker.reverse_result_rank) is lower_mae
+    assert min([lower_rmse, higher_rmse], key=reverse_worker.reverse_result_rank) is lower_rmse
+    assert min([lower_spearman, higher_spearman], key=reverse_worker.reverse_result_rank) is higher_spearman
+
+
+def test_reverse_worker_non_finite_metrics_do_not_win_ranking() -> None:
+    targets = [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    nan_mae = fake_reverse_result(
+        inlet1=1.0,
+        inlet2=0.0,
+        target_concentrations=targets,
+        mae=float("nan"),
+    )
+    finite_mae = fake_reverse_result(
+        inlet1=0.0,
+        inlet2=1.0,
+        target_concentrations=targets,
+        mae=0.1,
+    )
+    nan_spearman = fake_reverse_result(
+        inlet1=1.0,
+        inlet2=0.0,
+        target_concentrations=targets,
+        mae=0.1,
+        rmse=0.1,
+        maxae=0.1,
+        spearman=float("nan"),
+    )
+    finite_spearman = fake_reverse_result(
+        inlet1=0.0,
+        inlet2=1.0,
+        target_concentrations=targets,
+        mae=0.1,
+        rmse=0.1,
+        maxae=0.1,
+        spearman=0.5,
+    )
+
+    assert min([nan_mae, finite_mae], key=reverse_worker.reverse_result_rank) is finite_mae
+    assert min([nan_spearman, finite_spearman], key=reverse_worker.reverse_result_rank) is finite_spearman
+
+
+def test_incomplete_reverse_targets_do_not_reach_confirmation_after_inlet_is_not_required() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\n"
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a\n"
+                r"0.08\n0.14\n0.25"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["target_concentrations"]
+    assert "inlet" not in response.missing_fields
+
+
+def test_switching_from_forward_to_reverse_does_not_inherit_forward_inlet() -> None:
+    store = ConversationSessionStore()
+    service = make_service(store=store, adapter=FakeForwardAdapter(), reverse_manager=FakeReverseTaskManager())
+
+    forward = service.handle_message(
+        request(
+            zh(
+                r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b\uff0c"
+                r"\u5165\u53e31\u9ad8\u6d53\u5ea6"
+            )
+        )
+    )
+    reverse = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b "
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a0.08 0.14 0.25 0.38 0.48 0.58"
+            ),
+            forward.session_id,
+        )
+    )
+
+    session = store.get(forward.session_id)
+    assert session is not None
+    assert session.forward_draft.inlet1 == 1.0
+    assert session.forward_draft.inlet2 == 0.0
+    assert session.reverse_draft.inlet1 is None
+    assert session.reverse_draft.inlet2 is None
+    assert reverse.error is None
+    assert reverse.state == "ready_for_confirmation"
+    assert "inlet" not in reverse.missing_fields
+
+
+def test_forward_still_requires_inlet_after_reverse_contract_change() -> None:
+    adapter = FakeForwardAdapter()
+    service = make_service(adapter=adapter, reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(request(zh(r"\u505a6\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b")))
+
+    assert response.state == "collecting"
+    assert "inlet" in response.missing_fields
+    assert adapter.calls == 0
 
 
 def test_reset_clears_draft() -> None:
