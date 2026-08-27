@@ -152,12 +152,20 @@ def reverse_worker_popen_options(
 def reverse_task_request_payload(request: object) -> dict[str, Any]:
     if isinstance(request, ReverseDesignRequest):
         return request.model_dump()
+    inlet1 = getattr(request, "inlet1", None)
+    inlet2 = getattr(request, "inlet2", None)
     target_concentrations = getattr(request, "target_concentrations", None)
+    if inlet1 is None or inlet2 is None:
+        raise ValueError("Reverse task request must include inlet1 and inlet2.")
     if not isinstance(target_concentrations, list):
         raise ValueError("Reverse task request must include target_concentrations.")
     if len(target_concentrations) != 6:
         raise ValueError("Reverse task request requires exactly six target concentrations.")
-    return {"target_concentrations": [float(item) for item in target_concentrations]}
+    return {
+        "inlet1": float(inlet1),
+        "inlet2": float(inlet2),
+        "target_concentrations": [float(item) for item in target_concentrations],
+    }
 
 
 @dataclass

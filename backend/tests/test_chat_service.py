@@ -230,7 +230,7 @@ def test_complete_reverse_calls_fake_task_manager_once() -> None:
     assert response.reverse_task.task_id == "task-1"
 
 
-def test_reverse_installed_smoke_targets_are_ready_without_inlet() -> None:
+def test_reverse_targets_without_inlet_remain_collecting() -> None:
     manager = FakeReverseTaskManager()
     service = make_service(reverse_manager=manager)
 
@@ -244,14 +244,12 @@ def test_reverse_installed_smoke_targets_are_ready_without_inlet() -> None:
     )
 
     assert response.error is None
-    assert response.state == "ready_for_confirmation"
-    assert response.confirmation is not None
-    assert response.confirmation.mode == "reverse"
-    assert response.missing_fields == []
-    assert "inlet" not in response.missing_fields
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["inlet"]
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
-    assert "inlet1" not in response.parameter_summary
-    assert "inlet2" not in response.parameter_summary
+    assert response.parameter_summary["inlet1"] is None
+    assert response.parameter_summary["inlet2"] is None
     session = service.sessions.get(response.session_id)
     assert session is not None
     assert session.reverse_draft.inlet1 is None
@@ -259,7 +257,7 @@ def test_reverse_installed_smoke_targets_are_ready_without_inlet() -> None:
     assert manager.calls == 0
 
 
-def test_reverse_targets_with_dunhao_and_sentence_period_are_ready_without_inlet() -> None:
+def test_reverse_targets_with_dunhao_and_sentence_period_require_inlet() -> None:
     service = make_service(reverse_manager=FakeReverseTaskManager())
 
     response = service.handle_message(
@@ -272,10 +270,9 @@ def test_reverse_targets_with_dunhao_and_sentence_period_are_ready_without_inlet
     )
 
     assert response.error is None
-    assert response.state == "ready_for_confirmation"
-    assert response.confirmation is not None
-    assert response.confirmation.mode == "reverse"
-    assert response.missing_fields == []
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["inlet"]
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
 
 
@@ -291,9 +288,9 @@ def test_active_reverse_accepts_target_phrase_without_new_reverse_keyword() -> N
     )
 
     assert response.error is None
-    assert response.state == "ready_for_confirmation"
-    assert response.confirmation is not None
-    assert response.confirmation.mode == "reverse"
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["inlet"]
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
 
 
@@ -311,12 +308,14 @@ def test_reverse_targets_ignore_fixed_position_count_before_target_anchor() -> N
     )
 
     assert response.error is None
-    assert response.state == "ready_for_confirmation"
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["inlet"]
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
     assert 6.0 not in response.parameter_summary["target_concentrations"]
 
 
-def test_reverse_multiline_targets_are_ready_without_inlet() -> None:
+def test_reverse_multiline_targets_require_inlet() -> None:
     service = make_service(reverse_manager=FakeReverseTaskManager())
 
     response = service.handle_message(
@@ -330,13 +329,12 @@ def test_reverse_multiline_targets_are_ready_without_inlet() -> None:
     )
 
     assert response.error is None
-    assert response.state == "ready_for_confirmation"
-    assert response.confirmation is not None
-    assert response.confirmation.mode == "reverse"
-    assert response.missing_fields == []
+    assert response.state == "collecting"
+    assert response.confirmation is None
+    assert response.missing_fields == ["inlet"]
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
-    assert "inlet1" not in response.parameter_summary
-    assert "inlet2" not in response.parameter_summary
+    assert response.parameter_summary["inlet1"] is None
+    assert response.parameter_summary["inlet2"] is None
 
 
 def test_five_reverse_targets_remain_collecting_without_model_call() -> None:
@@ -356,7 +354,7 @@ def test_five_reverse_targets_remain_collecting_without_model_call() -> None:
     assert response.error is None
     assert response.state == "collecting"
     assert response.confirmation is None
-    assert response.missing_fields == ["target_concentrations"]
+    assert response.missing_fields == ["inlet", "target_concentrations"]
     assert manager.calls == 0
 
 
@@ -376,7 +374,7 @@ def test_seven_reverse_targets_are_not_truncated_to_first_six() -> None:
     assert response.error is None
     assert response.state == "collecting"
     assert response.confirmation is None
-    assert response.missing_fields == ["target_concentrations"]
+    assert response.missing_fields == ["inlet", "target_concentrations"]
     assert response.parameter_summary["target_concentrations"] == []
     assert manager.calls == 0
 
@@ -397,12 +395,12 @@ def test_malformed_reverse_target_token_is_not_accepted_as_complete_request() ->
     assert response.error is None
     assert response.state == "collecting"
     assert response.confirmation is None
-    assert response.missing_fields == ["target_concentrations"]
+    assert response.missing_fields == ["inlet", "target_concentrations"]
     assert response.parameter_summary["target_concentrations"] == []
     assert manager.calls == 0
 
 
-def test_confirmed_reverse_does_not_fabricate_inlet_for_task_creation() -> None:
+def test_confirmed_reverse_uses_user_selected_inlet_for_task_creation() -> None:
     manager = FakeReverseTaskManager()
     service = make_service(reverse_manager=manager)
 
@@ -410,6 +408,7 @@ def test_confirmed_reverse_does_not_fabricate_inlet_for_task_creation() -> None:
         request(
             zh(
                 r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b "
+                r"\u5165\u53e31\u9ad8\u6d53\u5ea6 "
                 r"\u76ee\u6807\u6d53\u5ea6\uff1a0.08 0.14 0.25 0.38 0.48 0.58"
             )
         )
@@ -420,12 +419,36 @@ def test_confirmed_reverse_does_not_fabricate_inlet_for_task_creation() -> None:
     assert response.state == "running"
     assert manager.calls == 1
     created_request = manager.requests[0]
+    assert created_request.inlet1 == 1.0
+    assert created_request.inlet2 == 0.0
     assert created_request.target_concentrations == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
-    assert not hasattr(created_request, "inlet1")
-    assert not hasattr(created_request, "inlet2")
 
 
-def test_reverse_installed_smoke_creates_real_task_without_fabricated_inlet(
+def test_confirmed_reverse_uses_inlet2_high_for_task_creation() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    ready = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b "
+                r"\u5165\u53e32\u9ad8\u6d53\u5ea6 "
+                r"\u76ee\u6807\u6d53\u5ea6\uff1a0.08 0.14 0.25 0.38 0.48 0.58"
+            )
+        )
+    )
+    response = service.handle_message(request(zh(r"\u786e\u8ba4"), ready.session_id))
+
+    assert response.error is None
+    assert response.state == "running"
+    assert manager.calls == 1
+    created_request = manager.requests[0]
+    assert created_request.inlet1 == 0.0
+    assert created_request.inlet2 == 1.0
+    assert created_request.target_concentrations == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_reverse_installed_smoke_creates_real_task_with_user_selected_inlet(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -458,6 +481,7 @@ def test_reverse_installed_smoke_creates_real_task_without_fabricated_inlet(
         request(
             zh(
                 r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b "
+                r"\u5165\u53e31\u9ad8\u6d53\u5ea6 "
                 r"\u76ee\u6807\u6d53\u5ea6\uff1a0.08 0.14 0.25 0.38 0.48 0.58"
             )
         )
@@ -471,21 +495,22 @@ def test_reverse_installed_smoke_creates_real_task_without_fabricated_inlet(
     assert response.reverse_task.task_id
     request_path = tmp_path / "tasks" / response.reverse_task.task_id / "request.json"
     payload = json.loads(request_path.read_text(encoding="utf-8"))
-    assert payload == {"target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]}
-    assert "inlet1" not in payload
-    assert "inlet2" not in payload
+    assert payload == {
+        "inlet1": 1.0,
+        "inlet2": 0.0,
+        "target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58],
+    }
     assert captured["args"][1:3] == ["-m", "app.model_runtime.reverse_worker"]
     assert captured["kwargs"]["shell"] is False
     calls: list[dict[str, Any]] = []
 
     def fake_run_reverse_design(**kwargs: Any) -> dict[str, Any]:
         calls.append(kwargs)
-        mae = 0.02 if kwargs["inlet1"] == 1.0 else 0.01
         return fake_reverse_result(
             inlet1=float(kwargs["inlet1"]),
             inlet2=float(kwargs["inlet2"]),
             target_concentrations=list(kwargs["target_concentrations"]),
-            mae=mae,
+            mae=0.01,
         )
 
     result_path = tmp_path / "tasks" / response.reverse_task.task_id / "result.json"
@@ -510,11 +535,11 @@ def test_reverse_installed_smoke_creates_real_task_without_fabricated_inlet(
 
     reverse_worker.main()
 
-    assert [(call["inlet1"], call["inlet2"]) for call in calls] == [(1.0, 0.0), (0.0, 1.0)]
+    assert [(call["inlet1"], call["inlet2"]) for call in calls] == [(1.0, 0.0)]
     result_payload = json.loads(result_path.read_text(encoding="utf-8"))
     assert result_payload["ok"] is True
-    assert result_payload["result"]["inlet1"] == 0.0
-    assert result_payload["result"]["inlet2"] == 1.0
+    assert result_payload["result"]["inlet1"] == 1.0
+    assert result_payload["result"]["inlet2"] == 0.0
 
 
 def test_legacy_reverse_worker_request_runs_only_specified_inlet(
@@ -572,6 +597,61 @@ def test_legacy_reverse_worker_request_runs_only_specified_inlet(
     assert result_payload["result"]["inlet2"] == 0.0
 
 
+def test_reverse_worker_request_runs_only_specified_inlet2(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    request_path = tmp_path / "request.json"
+    result_path = tmp_path / "result.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "inlet1": 0.0,
+                "inlet2": 1.0,
+                "target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58],
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[dict[str, Any]] = []
+
+    def fake_run_reverse_design(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return fake_reverse_result(
+            inlet1=float(kwargs["inlet1"]),
+            inlet2=float(kwargs["inlet2"]),
+            target_concentrations=list(kwargs["target_concentrations"]),
+            mae=0.01,
+        )
+
+    monkeypatch.setattr(reverse_worker, "run_reverse_design", fake_run_reverse_design)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reverse_worker",
+            "--request-json",
+            str(request_path),
+            "--result-json",
+            str(result_path),
+            "--checkpoint",
+            str(tmp_path / "checkpoint.pt"),
+            "--device",
+            "cpu",
+            "--application-root",
+            str(tmp_path),
+        ],
+    )
+
+    reverse_worker.main()
+
+    assert [(call["inlet1"], call["inlet2"]) for call in calls] == [(0.0, 1.0)]
+    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result_payload["ok"] is True
+    assert result_payload["result"]["inlet1"] == 0.0
+    assert result_payload["result"]["inlet2"] == 1.0
+
+
 def test_reverse_worker_rejects_malformed_requests_without_optimizer_call(monkeypatch: Any) -> None:
     calls: list[dict[str, Any]] = []
 
@@ -584,6 +664,7 @@ def test_reverse_worker_rejects_malformed_requests_without_optimizer_call(monkey
         {"inlet1": 1.0, "target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]},
         {"inlet2": 0.0, "target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]},
         {},
+        {"target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]},
         {"target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48]},
         {"target_concentrations": [0.08, 0.14, 0.25, 0.38, 0.48, 0.58, 0.63]},
     ]
@@ -603,134 +684,7 @@ def test_reverse_worker_rejects_malformed_requests_without_optimizer_call(monkey
     assert calls == []
 
 
-def test_reverse_worker_screening_pass_beats_better_numeric_metrics() -> None:
-    targets = [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
-    failed_screening = fake_reverse_result(
-        inlet1=1.0,
-        inlet2=0.0,
-        target_concentrations=targets,
-        mae=0.001,
-        rmse=0.001,
-        maxae=0.001,
-        spearman=1.0,
-        screening_pass=False,
-    )
-    passed_screening = fake_reverse_result(
-        inlet1=0.0,
-        inlet2=1.0,
-        target_concentrations=targets,
-        mae=0.1,
-        rmse=0.1,
-        maxae=0.1,
-        spearman=0.5,
-        screening_pass=True,
-    )
-
-    selected = min([failed_screening, passed_screening], key=reverse_worker.reverse_result_rank)
-
-    assert selected is passed_screening
-
-
-def test_reverse_worker_numeric_ranking_uses_mae_then_rmse_then_spearman() -> None:
-    targets = [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
-    higher_mae = fake_reverse_result(
-        inlet1=1.0,
-        inlet2=0.0,
-        target_concentrations=targets,
-        mae=0.02,
-        rmse=0.001,
-        maxae=0.001,
-        spearman=1.0,
-    )
-    lower_mae = fake_reverse_result(
-        inlet1=0.0,
-        inlet2=1.0,
-        target_concentrations=targets,
-        mae=0.01,
-        rmse=0.1,
-        maxae=0.1,
-        spearman=0.1,
-    )
-    lower_rmse = fake_reverse_result(
-        inlet1=1.0,
-        inlet2=0.0,
-        target_concentrations=targets,
-        mae=0.01,
-        rmse=0.02,
-        maxae=0.2,
-        spearman=0.1,
-    )
-    higher_rmse = fake_reverse_result(
-        inlet1=0.0,
-        inlet2=1.0,
-        target_concentrations=targets,
-        mae=0.01,
-        rmse=0.03,
-        maxae=0.001,
-        spearman=1.0,
-    )
-    lower_spearman = fake_reverse_result(
-        inlet1=1.0,
-        inlet2=0.0,
-        target_concentrations=targets,
-        mae=0.01,
-        rmse=0.02,
-        maxae=0.1,
-        spearman=0.4,
-    )
-    higher_spearman = fake_reverse_result(
-        inlet1=0.0,
-        inlet2=1.0,
-        target_concentrations=targets,
-        mae=0.01,
-        rmse=0.02,
-        maxae=0.1,
-        spearman=0.9,
-    )
-
-    assert min([higher_mae, lower_mae], key=reverse_worker.reverse_result_rank) is lower_mae
-    assert min([lower_rmse, higher_rmse], key=reverse_worker.reverse_result_rank) is lower_rmse
-    assert min([lower_spearman, higher_spearman], key=reverse_worker.reverse_result_rank) is higher_spearman
-
-
-def test_reverse_worker_non_finite_metrics_do_not_win_ranking() -> None:
-    targets = [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
-    nan_mae = fake_reverse_result(
-        inlet1=1.0,
-        inlet2=0.0,
-        target_concentrations=targets,
-        mae=float("nan"),
-    )
-    finite_mae = fake_reverse_result(
-        inlet1=0.0,
-        inlet2=1.0,
-        target_concentrations=targets,
-        mae=0.1,
-    )
-    nan_spearman = fake_reverse_result(
-        inlet1=1.0,
-        inlet2=0.0,
-        target_concentrations=targets,
-        mae=0.1,
-        rmse=0.1,
-        maxae=0.1,
-        spearman=float("nan"),
-    )
-    finite_spearman = fake_reverse_result(
-        inlet1=0.0,
-        inlet2=1.0,
-        target_concentrations=targets,
-        mae=0.1,
-        rmse=0.1,
-        maxae=0.1,
-        spearman=0.5,
-    )
-
-    assert min([nan_mae, finite_mae], key=reverse_worker.reverse_result_rank) is finite_mae
-    assert min([nan_spearman, finite_spearman], key=reverse_worker.reverse_result_rank) is finite_spearman
-
-
-def test_incomplete_reverse_targets_do_not_reach_confirmation_after_inlet_is_not_required() -> None:
+def test_incomplete_reverse_targets_and_missing_inlet_do_not_reach_confirmation() -> None:
     service = make_service(reverse_manager=FakeReverseTaskManager())
 
     response = service.handle_message(
@@ -746,8 +700,7 @@ def test_incomplete_reverse_targets_do_not_reach_confirmation_after_inlet_is_not
     assert response.error is None
     assert response.state == "collecting"
     assert response.confirmation is None
-    assert response.missing_fields == ["target_concentrations"]
-    assert "inlet" not in response.missing_fields
+    assert response.missing_fields == ["inlet", "target_concentrations"]
 
 
 def test_switching_from_forward_to_reverse_does_not_inherit_forward_inlet() -> None:
@@ -779,8 +732,111 @@ def test_switching_from_forward_to_reverse_does_not_inherit_forward_inlet() -> N
     assert session.reverse_draft.inlet1 is None
     assert session.reverse_draft.inlet2 is None
     assert reverse.error is None
-    assert reverse.state == "ready_for_confirmation"
-    assert "inlet" not in reverse.missing_fields
+    assert reverse.state == "collecting"
+    assert reverse.missing_fields == ["inlet"]
+
+
+def test_one_turn_reverse_with_inlet1_high_and_targets_reaches_confirmation() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\uff0c"
+                r"\u5165\u53e31\u9ad8\u6d53\u5ea6\uff0c"
+                r"\u76ee\u6807\u6d53\u5ea6\u662f.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.confirmation is not None
+    assert response.confirmation.mode == "reverse"
+    assert response.missing_fields == []
+    assert response.parameter_summary["inlet1"] == 1.0
+    assert response.parameter_summary["inlet2"] == 0.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_one_turn_reverse_with_inlet2_high_and_targets_reaches_confirmation() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u505a\u53cd\u5411\u9884\u6d4b\uff0c"
+                r"\u5165\u53e32\u9ad8\u6d53\u5ea6\uff0c"
+                r"\u76ee\u6807\u6d53\u5ea6\u662f.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 0.0
+    assert response.parameter_summary["inlet2"] == 1.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_reverse_targets_first_then_inlet_reaches_confirmation() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+    targets = service.handle_message(
+        request(
+            zh(
+                r"\u8fdb\u884c\u53cd\u5411\u9884\u6d4b\uff0c"
+                r"\u76ee\u6807\u6d53\u5ea6\u662f0.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"
+            )
+        )
+    )
+
+    response = service.handle_message(request(zh(r"\u5165\u53e31\u9ad8\u6d53\u5ea6"), targets.session_id))
+
+    assert targets.state == "collecting"
+    assert targets.missing_fields == ["inlet"]
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 1.0
+    assert response.parameter_summary["inlet2"] == 0.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_reverse_inlet_first_then_targets_reaches_confirmation() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+    inlet = service.handle_message(request(zh(r"\u505a\u53cd\u5411\u9884\u6d4b\uff0c\u5165\u53e32\u9ad8\u6d53\u5ea6")))
+
+    response = service.handle_message(
+        request(
+            zh(r"\u76ee\u6807\u6d53\u5ea6\u662f.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"),
+            inlet.session_id,
+        )
+    )
+
+    assert inlet.state == "collecting"
+    assert inlet.missing_fields == ["target_concentrations"]
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 0.0
+    assert response.parameter_summary["inlet2"] == 1.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_reverse_conflicting_inlets_are_rejected_without_partial_mutation() -> None:
+    store = ConversationSessionStore()
+    service = make_service(store=store, reverse_manager=FakeReverseTaskManager())
+    initial = service.handle_message(request(zh(r"\u505a\u53cd\u5411\u9884\u6d4b\uff0c\u5165\u53e31\u9ad8\u6d53\u5ea6")))
+    before = store.get(initial.session_id).reverse_draft.summary()
+
+    response = service.handle_message(
+        request(
+            zh(r"\u5165\u53e31\u9ad8\u6d53\u5ea6\uff0c\u5165\u53e32\u9ad8\u6d53\u5ea6"),
+            initial.session_id,
+        )
+    )
+
+    assert response.error is not None
+    assert response.error.code == "AMBIGUOUS_INPUT"
+    assert store.get(initial.session_id).reverse_draft.summary() == before
 
 
 def test_forward_still_requires_inlet_after_reverse_contract_change() -> None:

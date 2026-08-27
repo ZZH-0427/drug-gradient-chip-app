@@ -336,6 +336,8 @@ describe("Assistant structured cards", () => {
     for (const card of cards) {
       expect(within(card).getByText("Target Positions")).toBeInTheDocument();
       expect(within(card).getByText("6 (fixed)")).toBeInTheDocument();
+      expect(within(card).getByText("Inlet Selection")).toBeInTheDocument();
+      expect(within(card).getByText("Inlet 1: High concentration; Inlet 2: Low concentration")).toBeInTheDocument();
       expect(within(card).getAllByText("Target Concentration")).toHaveLength(1);
       expect(within(card).getByRole("cell", { name: "1" })).toBeInTheDocument();
       expect(within(card).getByRole("cell", { name: "6" })).toBeInTheDocument();
@@ -343,7 +345,6 @@ describe("Assistant structured cards", () => {
       expect(within(card).getByRole("cell", { name: "0.6" })).toBeInTheDocument();
       expect(within(card).queryByText(/^Target Concentration:/)).not.toBeInTheDocument();
       expect(within(card).queryByText("Sample Name")).not.toBeInTheDocument();
-      expect(within(card).queryByText("Inlet Selection")).not.toBeInTheDocument();
     }
   });
 
@@ -857,6 +858,8 @@ function completeForwardSummary() {
 function reverseSummary() {
   const targets = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
   return {
+    inlet1: 1,
+    inlet2: 0,
     target_position_count: 6,
     target_concentrations: targets,
     target_positions: targets.map((target, index) => ({

@@ -95,6 +95,9 @@ class ChatService:
         if parsed.intent == "start_reverse":
             session.active_chip_position = None
             session.active_mode = "reverse"
+            if "inlet1" in parsed.fields and "inlet2" in parsed.fields:
+                session.reverse_draft.inlet1 = float(parsed.fields["inlet1"])
+                session.reverse_draft.inlet2 = float(parsed.fields["inlet2"])
             return self._after_reverse_mutation(session, parsed)
         if parsed.intent == "set_chip_count":
             return self._handle_forward_turn(session, parsed)
@@ -108,6 +111,9 @@ class ChatService:
         if parsed.intent == "set_target_concentration":
             session.active_chip_position = None
             session.active_mode = "reverse"
+            if "inlet1" in parsed.fields and "inlet2" in parsed.fields:
+                session.reverse_draft.inlet1 = float(parsed.fields["inlet1"])
+                session.reverse_draft.inlet2 = float(parsed.fields["inlet2"])
             session.reverse_draft.target_concentrations = list(parsed.fields["target_concentrations"])
             return self._after_reverse_mutation(session, parsed)
         if parsed.intent == "show_parameters":

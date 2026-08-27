@@ -8,6 +8,7 @@ import type {
   ReverseTaskStatusResponse,
 } from "../api/types";
 import { apiClientErrorMessage } from "../i18n/errorMessages";
+import type { I18nContextValue } from "../i18n/context";
 import { useI18n } from "../i18n/useI18n";
 import { usePageTitle } from "../i18n/usePageTitle";
 
@@ -268,7 +269,7 @@ function ParameterSummaryCard({
   const targets = Array.isArray(summary.target_concentrations) ? summary.target_concentrations : [];
   const missing = Array.isArray(summary.missing_fields) ? summary.missing_fields : [];
   const targetPositions = reverseTargetPositions(summary, targets);
-  const isReverseSummary = targetPositions.length > 0 && chips.length === 0;
+  const isReverseSummary = (targetPositions.length > 0 || summary.target_position_count === 6) && chips.length === 0;
   if (isReverseSummary) {
     return (
       <section
@@ -277,6 +278,10 @@ function ParameterSummaryCard({
       >
         <h2>{t("assistant.parameterSummary")}</h2>
         <dl className="summary-list">
+          <div>
+            <dt>{t("common.inletSelection")}</dt>
+            <dd>{reverseInletSummary(summary, t)}</dd>
+          </div>
           <div>
             <dt>{t("assistant.reverseTargetPositionCount")}</dt>
             <dd>{t("assistant.fixedSixTargetPositions")}</dd>
@@ -385,6 +390,16 @@ function ParameterSummaryCard({
       ) : null}
     </section>
   );
+}
+
+function reverseInletSummary(summary: ParameterSummary, t: I18nContextValue["t"]): string {
+  if (summary.inlet1 === 1 && summary.inlet2 === 0) {
+    return `${t("common.inlet1")}: ${t("common.highConcentration")}; ${t("common.inlet2")}: ${t("common.lowConcentration")}`;
+  }
+  if (summary.inlet1 === 0 && summary.inlet2 === 1) {
+    return `${t("common.inlet1")}: ${t("common.lowConcentration")}; ${t("common.inlet2")}: ${t("common.highConcentration")}`;
+  }
+  return t("assistant.notSet");
 }
 
 function reverseTargetPositions(summary: ParameterSummary, targets: unknown[]) {

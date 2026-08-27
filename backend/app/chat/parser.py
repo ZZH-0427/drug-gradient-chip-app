@@ -134,9 +134,16 @@ class DeterministicChatParser:
 
         reverse_targets = parse_reverse_targets(text)
         if reverse_targets is not None:
+            fields: dict[str, Any] = {"target_concentrations": reverse_targets}
+            inlet, inlet_ambiguity = parse_inlet_relation(text)
+            if inlet_ambiguity is not None:
+                return ParsedMessage(intent="set_inlet", ambiguity=inlet_ambiguity)
+            if inlet is not None:
+                fields["inlet1"] = inlet[0]
+                fields["inlet2"] = inlet[1]
             return ParsedMessage(
                 intent="set_target_concentration",
-                fields={"target_concentrations": reverse_targets},
+                fields=fields,
             )
 
         composite = parse_forward_composite(text)
@@ -155,15 +162,23 @@ class DeterministicChatParser:
                 ambiguity=chip_parameter.ambiguity,
             )
 
+        starts_reverse = has_any(text, ["reverse", ZH_REVERSE])
+        if starts_reverse:
+            inlet, inlet_ambiguity = parse_inlet_relation(text)
+            if inlet_ambiguity is not None:
+                return ParsedMessage(intent="set_inlet", ambiguity=inlet_ambiguity)
+            fields = {"inlet1": inlet[0], "inlet2": inlet[1]} if inlet is not None else {}
+            chip_count = parse_chip_count(text)
+            if chip_count is not None:
+                fields["chip_count"] = chip_count
+            return ParsedMessage(intent="start_reverse", fields=fields)
+
         inlet = parse_inlet(text)
         if inlet is not None:
             return ParsedMessage(intent="set_inlet", fields={"inlet1": inlet[0], "inlet2": inlet[1]})
 
         chip_count = parse_chip_count(text)
         starts_forward = has_any(text, ["forward", ZH_FORWARD, ZH_FRONTWARD])
-        starts_reverse = has_any(text, ["reverse", ZH_REVERSE])
-        if starts_reverse:
-            return ParsedMessage(intent="start_reverse", fields={"chip_count": chip_count} if chip_count else {})
         if starts_forward:
             return ParsedMessage(intent="start_forward", fields={"chip_count": chip_count} if chip_count else {})
         if chip_count is not None:
@@ -249,12 +264,16 @@ def parse_inlet(text: str) -> tuple[float, float] | None:
 
 def parse_inlet_relation(text: str) -> tuple[tuple[float, float] | None, str | None]:
     lowered = text.lower().replace(" ", "")
-    inlet_pattern = re.compile(rf"inlet1|{ZH_INLET_1}|{ZH_INLET_ONE}|inlet2|{ZH_INLET_2}|{ZH_INLET_TWO}", flags=re.IGNORECASE)
+    inlet1_terms = ("inlet1", ZH_INLET_1, ZH_INLET_ONE, "\u4e00\u53f7\u5165\u53e3")
+    inlet2_terms = ("inlet2", ZH_INLET_2, ZH_INLET_TWO, "\u4e8c\u53f7\u5165\u53e3")
+    inlet_pattern = re.compile("|".join(re.escape(term) for term in (*inlet1_terms, *inlet2_terms)), flags=re.IGNORECASE)
+    separators = [match.start() for match in re.finditer(r"[,.;\n]", lowered)]
     matches = list(inlet_pattern.finditer(lowered))
     relations: set[tuple[float, float]] = set()
-    for index, match in enumerate(matches):
-        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(lowered)
-        segment = lowered[match.start():next_start]
+    for match in matches:
+        previous_separator = max((index for index in separators if index < match.start()), default=-1)
+        next_separator = min((index for index in separators if index > match.end()), default=len(lowered))
+        segment = lowered[previous_separator + 1:next_separator]
         has_high = has_any(segment, ["high", ZH_HIGH_CONCENTRATION, ZH_HIGH])
         has_low = has_any(segment, ["low", ZH_LOW_CONCENTRATION, ZH_LOW])
         if has_high and has_low:
@@ -262,7 +281,7 @@ def parse_inlet_relation(text: str) -> tuple[tuple[float, float] | None, str | N
         if not has_high and not has_low:
             continue
         inlet_name = match.group(0).lower()
-        is_inlet1 = inlet_name in {"inlet1", ZH_INLET_1, ZH_INLET_ONE}
+        is_inlet1 = inlet_name in {term.lower() for term in inlet1_terms}
         if (is_inlet1 and has_high) or (not is_inlet1 and has_low):
             relations.add((1.0, 0.0))
         else:

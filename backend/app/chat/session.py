@@ -6,6 +6,7 @@ from typing import Any
 
 from app.chat.schemas import ChatLanguage, ChatMode, ChatState
 from app.schemas.forward import ForwardPredictionRequest
+from app.schemas.reverse import ReverseDesignRequest
 
 DEFAULT_SAMPLE_NAME = "chat-forward"
 
@@ -123,11 +124,6 @@ class ForwardDraft:
 
 
 @dataclass
-class ReverseChatRequest:
-    target_concentrations: list[float]
-
-
-@dataclass
 class ReverseDraft:
     inlet1: float | None = None
     inlet2: float | None = None
@@ -135,6 +131,8 @@ class ReverseDraft:
 
     def missing_fields(self) -> list[str]:
         missing: list[str] = []
+        if self.inlet1 is None or self.inlet2 is None:
+            missing.append("inlet")
         if len(self.target_concentrations) != 6:
             missing.append("target_concentrations")
         return missing
@@ -145,6 +143,8 @@ class ReverseDraft:
     def summary(self) -> dict[str, Any]:
         targets = list(self.target_concentrations)
         return {
+            "inlet1": self.inlet1,
+            "inlet2": self.inlet2,
             "target_position_count": 6,
             "target_concentrations": targets,
             "target_positions": [
@@ -153,8 +153,12 @@ class ReverseDraft:
             ],
         }
 
-    def to_request(self) -> ReverseChatRequest:
-        return ReverseChatRequest(target_concentrations=list(self.target_concentrations))
+    def to_request(self) -> ReverseDesignRequest:
+        return ReverseDesignRequest(
+            inlet1=self.inlet1,
+            inlet2=self.inlet2,
+            target_concentrations=list(self.target_concentrations),
+        )
 
 
 @dataclass

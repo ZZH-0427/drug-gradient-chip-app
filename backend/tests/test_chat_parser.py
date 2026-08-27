@@ -56,6 +56,34 @@ def test_parser_detects_inlet_high_modes() -> None:
     assert parse("inlet 2 high").fields == {"inlet1": 0.0, "inlet2": 1.0}
 
 
+def test_parser_detects_reverse_high_concentration_inlet_phrases() -> None:
+    inlet1_messages = [
+        zh(r"\u5165\u53e3 1 \u9ad8\u6d53\u5ea6"),
+        zh(r"Inlet1\u9ad8\u6d53\u5ea6"),
+        zh(r"Inlet 1 \u9ad8\u6d53\u5ea6"),
+        zh(r"\u4e00\u53f7\u5165\u53e3\u9ad8\u6d53\u5ea6"),
+        zh(r"\u5165\u53e31\u4e3a\u9ad8\u6d53\u5ea6"),
+        zh(r"\u5165\u53e31\u7528\u9ad8\u6d53\u5ea6"),
+        zh(r"\u9ad8\u6d53\u5ea6\u5165\u53e3\u662f\u5165\u53e31"),
+        zh(r"\u9009\u62e9\u5165\u53e31\u4f5c\u4e3a\u9ad8\u6d53\u5ea6\u5165\u53e3"),
+    ]
+    inlet2_messages = [
+        zh(r"\u5165\u53e3 2 \u9ad8\u6d53\u5ea6"),
+        zh(r"Inlet2\u9ad8\u6d53\u5ea6"),
+        zh(r"Inlet 2 \u9ad8\u6d53\u5ea6"),
+        zh(r"\u4e8c\u53f7\u5165\u53e3\u9ad8\u6d53\u5ea6"),
+        zh(r"\u5165\u53e32\u4e3a\u9ad8\u6d53\u5ea6"),
+        zh(r"\u5165\u53e32\u7528\u9ad8\u6d53\u5ea6"),
+        zh(r"\u9ad8\u6d53\u5ea6\u5165\u53e3\u662f\u5165\u53e32"),
+        zh(r"\u9009\u62e9\u5165\u53e32\u4f5c\u4e3a\u9ad8\u6d53\u5ea6\u5165\u53e3"),
+    ]
+
+    for message in inlet1_messages:
+        assert parse(message).fields == {"inlet1": 1.0, "inlet2": 0.0}
+    for message in inlet2_messages:
+        assert parse(message).fields == {"inlet1": 0.0, "inlet2": 1.0}
+
+
 def test_parser_accepts_consistent_dual_inlet_relations() -> None:
     high_low = parse(zh(r"\u5165\u53e31\u9ad8\u6d53\u5ea6\uff0c\u5165\u53e32\u4f4e\u6d53\u5ea6"))
     low_high = parse(zh(r"\u5165\u53e31\u4f4e\u6d53\u5ea6\uff0c\u5165\u53e32\u9ad8\u6d53\u5ea6"))
