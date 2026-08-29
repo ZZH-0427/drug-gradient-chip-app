@@ -315,7 +315,12 @@ def parse_forward_composite(text: str) -> ParsedMessage:
     current_position: int | None = None
 
     for segment in split_message_segments(text):
+        has_scope_cue = has_explicit_chip_scope_cue(segment)
         position = parse_chip_position(segment)
+        if has_scope_cue and position is None:
+            update_without_context = parse_chip_update_segment(segment)
+            if update_without_context.fields or update_without_context.ambiguity or extract_numbers(segment):
+                return ParsedMessage(intent="set_chip_parameter", ambiguity="ambiguous_chip_position")
         if position is not None:
             current_position = position
         update = parse_chip_update_segment(segment, current_position)
@@ -391,6 +396,10 @@ def parse_chip_update_segment(text: str, current_position: int | None = None) ->
         return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_type": chip_type})
     if (has_chip_type_context(text) or position is not None) and INVALID_CHIP_TYPE_PATTERN.search(text):
         return ParsedMessage(ambiguity="invalid_chip_type")
+
+    paired_widths = parse_paired_widths(text)
+    if paired_widths:
+        return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_updates": paired_widths})
 
     paired_distances = parse_paired_distances(text)
     if paired_distances:
@@ -498,6 +507,20 @@ def has_chip_type_context(text: str) -> bool:
     )
 
 
+def parse_paired_widths(text: str) -> dict[str, float]:
+    has_left = has_any(text, ["left width", ZH_LEFT_WIDTH, ZH_LEFT_WIDTH_SHORT, ZH_LEFT_SIDE_WIDTH, ZH_LEFT_EDGE_WIDTH])
+    has_right = has_any(text, ["right width", ZH_RIGHT_WIDTH, ZH_RIGHT_WIDTH_SHORT, ZH_RIGHT_SIDE_WIDTH, ZH_RIGHT_EDGE_WIDTH])
+    if not has_left or not has_right:
+        return {}
+    values = extract_assignment_values(text)
+    if len(values) < 2:
+        return {}
+    return {
+        "left_width_mm": values[-2],
+        "right_width_mm": values[-1],
+    }
+
+
 def parse_paired_distances(text: str) -> dict[str, float]:
     has_left = has_any(
         text,
@@ -549,6 +572,12 @@ def parse_chip_position(text: str) -> int | None:
     match = re.search(r"chip\s*(\d{1,2})", lowered)
     if match:
         return int(match.group(1))
+    match = re.search(rf"(\d{{1,2}})\s*\u53f7\s*{ZH_CHIP}", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(\d{1,2})\s*\u53f7(?!\s*\u5165\u53e3)", text)
+    if match:
+        return int(match.group(1))
     match = re.search(rf"{ZH_POSITION}\s*(\d{{1,2}})", text)
     if match:
         return int(match.group(1))
@@ -564,16 +593,31 @@ def parse_chip_position(text: str) -> int | None:
     match = re.search(rf"\u7b2c\s*(\d{{1,2}})\s*(?:\u4e2a)?\s*{ZH_CHIP}", text)
     if match:
         return int(match.group(1))
-    match = re.search(rf"(\d{{1,2}})\s*\u53f7\s*{ZH_CHIP}", text)
+    match = re.search(rf"\u7b2c\s*([{''.join(CHINESE_DIGITS)}])\s*(?:\u4e2a)?\s*{ZH_CHIP}", text)
+    if match:
+        return CHINESE_DIGITS[match.group(1)]
+    match = re.search(r"\u7b2c\s*(\d{1,2})\s*(?:\u4e2a)?(?:\s*(?:{ZH_CHIP}|{ZH_POSITION}))?", text)
     if match:
         return int(match.group(1))
-    match = re.search(rf"\u7b2c\s*([{''.join(CHINESE_DIGITS)}])\s*(?:\u4e2a)?\s*{ZH_CHIP}", text)
+    match = re.search(rf"\u7b2c\s*([{''.join(CHINESE_DIGITS)}])\s*(?:\u4e2a)?(?:\s*(?:{ZH_CHIP}|{ZH_POSITION}))?", text)
     if match:
         return CHINESE_DIGITS[match.group(1)]
     for ordinal, value in ENGLISH_ORDINALS.items():
         if re.search(rf"\b{ordinal}\s+chip\b", lowered):
             return value
     return None
+
+
+def has_explicit_chip_scope_cue(text: str) -> bool:
+    chinese_digit_class = "".join(CHINESE_DIGITS)
+    return any(
+        re.search(pattern, text)
+        for pattern in [
+            r"\u7b2c\s*(?:\d{1,2}|[" + chinese_digit_class + r"]|[A-Za-z]+)\s*(?:\u4e2a)?\s*(?:" + ZH_CHIP + r"|" + ZH_POSITION + r")?",
+            rf"{ZH_POSITION}\s*(?:\d{{1,2}}|[{chinese_digit_class}])",
+            r"\d{1,2}\s*\u53f7\s*(?:" + ZH_CHIP + r")?",
+        ]
+    )
 
 
 def parse_chip_field(text: str) -> str | None:
@@ -621,8 +665,12 @@ def parse_reverse_target_numbers(region: str) -> list[float] | None:
 
 def reverse_target_region(text: str) -> str | None:
     anchor_patterns = [
+        rf"{ZH_TARGET_CONCENTRATION}\s*(?:\u4f9d\u6b21|{ZH_SEPARATELY})?\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
         rf"{ZH_TARGET_CONCENTRATION}\s*(?:{ZH_SEPARATELY})?\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
         rf"{ZH_CONCENTRATION}\s*{ZH_SEPARATELY}\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
+        rf"(?:\u516d|6)\s*\u4e2a\s*{ZH_POSITION}\s*\u7684\s*{ZH_CONCENTRATION}\s*(?:\u53d8\u6210|{ZH_SEPARATELY}\s*{ZH_IS}|{ZH_IS}|{ZH_TO}|:|=)?",
+        rf"(?:\u516d|6)\s*\u4e2a\s*{ZH_TARGET}(?:\u503c|{ZH_CONCENTRATION})\s*(?:\u4f9d\u6b21|{ZH_SEPARATELY})?\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
+        rf"(?:\u6211\u5e0c\u671b)?(?:\u516d|6)\s*\u4e2a\s*{ZH_POSITION}\s*\u6700\u540e\s*\u7684\s*{ZH_CONCENTRATION}\s*{ZH_SEPARATELY}\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
         r"target\s+concentrations?\s*(?:are|is|:|=)?",
         r"targets?\s*(?:are|is|:|=)?",
     ]

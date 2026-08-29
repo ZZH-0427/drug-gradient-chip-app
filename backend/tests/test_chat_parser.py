@@ -239,6 +239,20 @@ def test_parser_extracts_reverse_targets_after_target_anchor_only() -> None:
     assert parsed.fields["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
 
 
+def test_parser_accepts_colloquial_reverse_target_anchors() -> None:
+    messages = [
+        zh(r"\u76ee\u6807\u6d53\u5ea6\u4f9d\u6b21\u662f0.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"),
+        zh(r"\u6211\u60f3\u8ba9\u516d\u4e2a\u4f4d\u7f6e\u7684\u6d53\u5ea6\u53d8\u62100.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58"),
+        zh(r"\u516d\u4e2a\u76ee\u6807\u503c\u4f9d\u6b21\u662f0.08 0.14 0.25 0.38 0.48 0.58\u3002"),
+    ]
+
+    for message in messages:
+        parsed = parse(message)
+
+        assert parsed.intent == "set_target_concentration"
+        assert parsed.fields["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
 def test_parser_rejects_malformed_reverse_target_tokens() -> None:
     for message in [
         "target concentrations are 1.2.3 0.1 0.2 0.3 0.4 0.5",
@@ -250,6 +264,30 @@ def test_parser_rejects_malformed_reverse_target_tokens() -> None:
 
         assert parsed.intent != "set_target_concentration"
         assert "target_concentrations" not in parsed.fields
+
+
+def test_parser_accepts_colloquial_chip_position_and_type_scope() -> None:
+    cases = [
+        (zh(r"\u7b2c\u4e00\u4e2a\u90095to4"), 1, "5to4"),
+        (zh(r"\u7b2c\u4e8c\u4e2a\u75284to2"), 2, "4to2"),
+        (zh(r"1\u53f7\u82af\u72475to4"), 1, "5to4"),
+        (zh(r"2\u53f74to2"), 2, "4to2"),
+        (zh(r"\u4f4d\u7f6e 3\u90091to6"), 3, "1to6"),
+    ]
+
+    for message, position, chip_type in cases:
+        parsed = parse(message)
+
+        assert parsed.intent == "set_chip_parameter"
+        assert parsed.fields["chip_position"] == position
+        assert parsed.fields["chip_type"] == chip_type
+
+
+def test_parser_rejects_unresolved_explicit_chip_scope_without_context_fallback() -> None:
+    parsed = parse(zh(r"\u7b2cX\u4e2a\u75284to2\uff0c\u5de6\u5bbd.089"))
+
+    assert parsed.intent == "set_chip_parameter"
+    assert parsed.ambiguity == "ambiguous_chip_position"
 
 
 def test_parser_accepts_reverse_targets_with_sentence_period() -> None:

@@ -779,6 +779,47 @@ def test_one_turn_reverse_with_inlet2_high_and_targets_reaches_confirmation() ->
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
 
 
+def test_colloquial_reverse_design_with_inlet2_high_and_targets_reaches_confirmation() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u6211\u60f3\u505a\u53cd\u5411\u8bbe\u8ba1\uff0c"
+                r"\u9ad8\u6d53\u5ea6\u8d70\u5165\u53e32\uff0c"
+                r"\u76ee\u6807\u6d53\u5ea6\u4f9d\u6b21\u662f0.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\u3002"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 0.0
+    assert response.parameter_summary["inlet2"] == 1.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_colloquial_reverse_targets_without_inlet_remains_collecting() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u6211\u60f3\u8ba9\u516d\u4e2a\u4f4d\u7f6e\u7684\u6d53\u5ea6\u53d8\u6210"
+                r"0.08\u3001.14\u3001.25\u3001.38\u3001.48\u3001.58\uff0c"
+                r"\u5e2e\u6211\u505a\u53cd\u5411\u9884\u6d4b\u3002"
+            )
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "collecting"
+    assert response.missing_fields == ["inlet"]
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert manager.calls == 0
+
+
 def test_reverse_targets_first_then_inlet_reaches_confirmation() -> None:
     service = make_service(reverse_manager=FakeReverseTaskManager())
     targets = service.handle_message(
@@ -818,6 +859,26 @@ def test_reverse_inlet_first_then_targets_reaches_confirmation() -> None:
     assert response.state == "ready_for_confirmation"
     assert response.parameter_summary["inlet1"] == 0.0
     assert response.parameter_summary["inlet2"] == 1.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_reverse_existing_inlet_then_colloquial_target_values_reaches_confirmation() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+    inlet = service.handle_message(request(zh(r"\u505a\u53cd\u5411\u9884\u6d4b\uff0c\u5165\u53e31\u9ad8\u6d53\u5ea6")))
+
+    response = service.handle_message(
+        request(
+            zh(r"\u516d\u4e2a\u76ee\u6807\u503c\u4f9d\u6b21\u662f0.08 0.14 0.25 0.38 0.48 0.58\u3002"),
+            inlet.session_id,
+        )
+    )
+
+    assert inlet.state == "collecting"
+    assert inlet.missing_fields == ["target_concentrations"]
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 1.0
+    assert response.parameter_summary["inlet2"] == 0.0
     assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
 
 
@@ -1556,6 +1617,119 @@ def test_contextual_omitted_chip_fields_apply_to_active_chip() -> None:
     assert chip2.left_bend_straight_distance_mm == 25.0
     assert chip2.right_bend_straight_distance_mm == 13.0
     assert response.error is None
+
+
+def test_colloquial_forward_second_chip_scope_does_not_overwrite_first_chip() -> None:
+    store = ConversationSessionStore()
+    service = make_service(store=store, adapter=FakeForwardAdapter())
+
+    start = service.handle_message(request(zh(r"\u5e2e\u6211\u7b976\u4e2a\u82af\u7247\u6b63\u5411\u9884\u6d4b\uff0c\u5165\u53e31\u9ad8\u6d53\u5ea6")))
+    first = service.handle_message(
+        request(
+            zh(r"\u7b2c\u4e00\u4e2a\u82af\u7247\u90095to4\uff0c\u5de6\u5bbd.261\uff0c\u53f3\u5bbd.138\uff0c\u5de6\u8ddd31\uff0c\u53f3\u8ddd25\u3002"),
+            start.session_id,
+        )
+    )
+    second = service.handle_message(
+        request(
+            zh(r"\u7b2c\u4e8c\u4e2a\u75284to2\uff0c\u5de6\u5bbd.089\uff0c\u53f3\u5bbd.04\uff0c\u5de6\u8ddd25\uff0c\u53f3\u8ddd13\u3002"),
+            start.session_id,
+        )
+    )
+
+    session = store.get(start.session_id)
+    assert first.error is None
+    assert second.error is None
+    assert session is not None
+    assert session.active_chip_position == 2
+    assert_chip(
+        session.forward_draft.chips[1].to_payload(),
+        chip_type="5to4",
+        left_width=0.261,
+        right_width=0.138,
+        left_distance=31.0,
+        right_distance=25.0,
+    )
+    assert_chip(
+        session.forward_draft.chips[2].to_payload(),
+        chip_type="4to2",
+        left_width=0.089,
+        right_width=0.04,
+        left_distance=25.0,
+        right_distance=13.0,
+    )
+
+
+def test_one_shot_colloquial_forward_composite_keeps_message_local_chip_scope() -> None:
+    service = make_service(adapter=FakeForwardAdapter())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u6211\u60f3\u7b976\u4e2a\u82af\u7247\uff0c\u5165\u53e31\u9ad8\u6d53\u5ea6\u3002"
+                r"\u7b2c\u4e00\u4e2a\u90095to4\uff0c\u5de6\u5bbd.261\uff0c\u53f3\u5bbd.138\uff0c\u5de6\u8ddd31\uff0c\u53f3\u8ddd25\uff1b"
+                r"\u7b2c\u4e8c\u4e2a\u90094to2\uff0c\u5de6\u5bbd.089\uff0c\u53f3\u5bbd.04\uff0c\u5de6\u8ddd25\uff0c\u53f3\u8ddd13\uff1b"
+                r"\u7b2c\u4e09\u4e2a\u90091to6\uff0c\u5de6\u5bbd.212\uff0c\u53f3\u5bbd.236\uff0c\u5de6\u8ddd7\uff0c\u53f3\u8ddd31\u3002"
+            )
+        )
+    )
+
+    summary = response.parameter_summary
+    assert response.error is None
+    assert response.state == "collecting"
+    assert summary["chip_count"] == 6
+    assert summary["inlet1"] == 1.0
+    assert summary["inlet2"] == 0.0
+    assert all(field.startswith(("chips.4.", "chips.5.", "chips.6.")) for field in response.missing_fields)
+    assert_chip(summary["chips"][0], chip_type="5to4", left_width=0.261, right_width=0.138, left_distance=31.0, right_distance=25.0)
+    assert_chip(summary["chips"][1], chip_type="4to2", left_width=0.089, right_width=0.04, left_distance=25.0, right_distance=13.0)
+    assert_chip(summary["chips"][2], chip_type="1to6", left_width=0.212, right_width=0.236, left_distance=7.0, right_distance=31.0)
+
+
+def test_one_shot_numbered_chip_colloquial_forward_composite() -> None:
+    service = make_service(adapter=FakeForwardAdapter())
+
+    response = service.handle_message(
+        request(
+            zh(
+                r"\u5e2e\u6211\u505a\u4e2a6\u82af\u7247\u6b63\u5411\u9884\u6d4b\u5427\uff0c"
+                r"\u5165\u53e31\u8d70\u9ad8\u6d53\u5ea6\u3002"
+                r"1\u53f7\u82af\u72475to4\uff0c\u5de6\u5bbd.261\u53f3\u5bbd0.138\uff0c\u5de6\u8ddd31\u53f3\u8ddd25\uff0c"
+                r"2\u53f7\u82af\u72474to2\uff0c\u5de6\u5bbd.089\u53f3\u5bbd0.04\uff0c\u5de6\u8ddd25\u53f3\u8ddd13\u3002"
+            )
+        )
+    )
+
+    summary = response.parameter_summary
+    assert response.error is None
+    assert response.state == "collecting"
+    assert summary["chip_count"] == 6
+    assert summary["inlet1"] == 1.0
+    assert summary["inlet2"] == 0.0
+    assert all(
+        field.startswith(("chips.3.", "chips.4.", "chips.5.", "chips.6."))
+        for field in response.missing_fields
+    )
+    assert_chip(summary["chips"][0], chip_type="5to4", left_width=0.261, right_width=0.138, left_distance=31.0, right_distance=25.0)
+    assert_chip(summary["chips"][1], chip_type="4to2", left_width=0.089, right_width=0.04, left_distance=25.0, right_distance=13.0)
+
+
+def test_unresolved_explicit_chip_scope_does_not_fallback_to_active_chip() -> None:
+    store = ConversationSessionStore()
+    session = store.create("zh-CN")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    session.active_chip_position = 1
+    session.forward_draft.chips[1].chip_type = "5to4"
+    before = session.forward_draft.summary()
+    service = make_service(store=store)
+
+    response = service.handle_message(request(zh(r"\u7b2cX\u4e2a\u75284to2\uff0c\u5de6\u5bbd.089"), session.session_id))
+
+    assert response.error is not None
+    assert response.error.code == "AMBIGUOUS_INPUT"
+    assert store.get(session.session_id).forward_draft.summary() == before
+    assert store.get(session.session_id).active_chip_position == 1
 
 
 def test_single_message_omitted_fields_follow_last_explicit_chip_position() -> None:
