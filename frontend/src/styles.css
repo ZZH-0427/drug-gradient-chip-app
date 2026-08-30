@@ -14,6 +14,14 @@
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: clip;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
 }
 
 a {
@@ -29,6 +37,8 @@ select {
 
 .app-shell {
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .topbar {
@@ -36,6 +46,7 @@ select {
   top: 0;
   z-index: 10;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
@@ -46,8 +57,10 @@ select {
 }
 
 .brand {
+  min-width: 0;
   font-weight: 700;
   color: #102033;
+  overflow-wrap: anywhere;
 }
 
 .topbar-actions {
@@ -59,6 +72,7 @@ select {
 
 .topbar nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -110,11 +124,15 @@ select:focus-visible {
 
 main {
   padding: 32px;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .page-section {
+  width: 100%;
   max-width: 1280px;
   margin: 0 auto;
+  min-width: 0;
 }
 
 .page-section.narrow {
@@ -170,6 +188,7 @@ h2 {
 
 .module-card {
   display: block;
+  min-width: 0;
   min-height: 190px;
   padding: 24px;
   border: 1px solid #d9e2ef;
@@ -215,6 +234,8 @@ h2 {
 .status-banner,
 .message,
 .tool-panel {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid #d9e2ef;
   border-radius: 8px;
   background: #ffffff;
@@ -241,6 +262,7 @@ h2 {
 .message {
   margin-bottom: 16px;
   padding: 14px 16px;
+  overflow-wrap: anywhere;
 }
 
 .message.error {
@@ -265,14 +287,14 @@ h2 {
 
 .form-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 360px) minmax(360px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 16px;
   align-items: end;
   margin-bottom: 18px;
 }
 
 .form-grid.form-grid-wide {
-  grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px) minmax(220px, 280px) minmax(360px, 1.4fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
 }
 
 .chip-count-summary {
@@ -290,6 +312,7 @@ h2 {
 label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: #334155;
   font-weight: 600;
 }
@@ -297,6 +320,7 @@ label {
 input,
 select {
   width: 100%;
+  min-width: 0;
   min-height: 38px;
   padding: 8px 10px;
   border: 1px solid #c8d3e2;
@@ -313,8 +337,10 @@ select:disabled {
 
 .segmented {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
   margin: 0;
   padding: 0;
   border: 0;
@@ -328,6 +354,7 @@ select:disabled {
 
 .segmented label {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
@@ -358,20 +385,27 @@ select:disabled {
 
 .table-wrap {
   width: 100%;
-  overflow-x: auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 table {
   width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
 th,
 td {
-  padding: 10px 12px;
+  min-width: 0;
+  padding: 9px 10px;
   border-bottom: 1px solid #e1e7f0;
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 th {
@@ -381,11 +415,11 @@ th {
 }
 
 .input-table {
-  min-width: 1040px;
+  min-width: 0;
 }
 
 .reverse-target-wrap {
-  overflow-x: auto;
+  overflow-x: clip;
 }
 
 .reverse-target-table {
@@ -412,12 +446,12 @@ th {
 }
 
 .result-table {
-  min-width: 980px;
+  min-width: 0;
 }
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
   gap: 10px;
   margin-bottom: 16px;
   color: #334155;
@@ -507,6 +541,7 @@ button:disabled {
 
 .result-heading {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 18px;
   align-items: flex-start;
@@ -515,30 +550,44 @@ button:disabled {
 
 .chat-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
   gap: 18px;
   align-items: start;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chat-panel {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .chat-messages {
   display: grid;
   gap: 12px;
+  min-width: 0;
   max-height: 58vh;
   overflow-y: auto;
   padding-right: 4px;
 }
 
 .chat-message {
-  width: min(82%, 720px);
+  width: fit-content;
+  max-width: min(82%, 720px);
+  min-width: 0;
   padding: 12px 14px;
   border: 1px solid #d9e2ef;
   border-radius: 8px;
   background: #f8fafc;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-message p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-message p:last-child {
@@ -578,6 +627,7 @@ button:disabled {
 }
 
 .chat-examples span {
+  min-width: 0;
   padding: 5px 8px;
   border: 1px solid #d9e2ef;
   border-radius: 6px;
@@ -591,12 +641,18 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: end;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chat-composer textarea {
   width: 100%;
+  min-width: 0;
   min-height: 88px;
+  max-height: 220px;
   resize: vertical;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 10px 12px;
   border: 1px solid #c8d3e2;
   border-radius: 6px;
@@ -606,6 +662,8 @@ button:disabled {
 .chat-side {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chat-parameter-card.embedded {
@@ -616,12 +674,13 @@ button:disabled {
 
 .summary-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
   gap: 10px;
   margin: 0 0 12px;
 }
 
 .summary-list div {
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid #e1e7f0;
   border-radius: 6px;
@@ -638,10 +697,11 @@ button:disabled {
   margin: 3px 0 0;
   color: #102033;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .compact-table {
-  min-width: 720px;
+  min-width: 0;
   font-size: 0.9rem;
 }
 
@@ -653,6 +713,16 @@ button:disabled {
 .missing-list ul {
   margin: 6px 0 0;
   padding-left: 20px;
+}
+
+@media (max-width: 980px) {
+  .chat-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-message {
+    max-width: 100%;
+  }
 }
 
 @media (max-width: 760px) {
@@ -680,14 +750,14 @@ button:disabled {
   }
 
   .module-grid,
-  .chat-layout,
   .form-grid,
   .metric-grid {
     grid-template-columns: 1fr;
   }
 
   .chat-message {
-    width: 100%;
+    width: auto;
+    max-width: 100%;
   }
 
   .chat-composer {
@@ -714,5 +784,10 @@ button:disabled {
 
   .reverse-target-table .point-col {
     width: 56px;
+  }
+
+  th,
+  td {
+    padding: 8px 6px;
   }
 }
