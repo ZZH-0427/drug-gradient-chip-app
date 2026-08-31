@@ -990,6 +990,307 @@ def test_forward_multi_turn_natural_language_reaches_confirmation_before_model_c
     assert adapter.requests[0].chip_count == 6
 
 
+def test_english_e1_forward_basic_intent_collects_chip_parameters() -> None:
+    adapter = FakeForwardAdapter()
+    service = make_service(adapter=adapter)
+
+    response = service.handle_message(
+        request(
+            "Please run a forward prediction for 6 chips. Use Inlet1 as the high-concentration inlet.",
+            language="en",
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "collecting"
+    assert response.parameter_summary["chip_count"] == 6
+    assert response.parameter_summary["inlet1"] == 1.0
+    assert response.parameter_summary["inlet2"] == 0.0
+    assert response.forward_prediction is None
+    assert adapter.calls == 0
+
+
+def test_english_e2_first_chip_scope_use_chip_type_and_fields() -> None:
+    store = ConversationSessionStore()
+    session = store.create("en")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    service = make_service(store=store)
+
+    response = service.handle_message(
+        request(
+            "For the first chip, use 5to4. Set the left width to 0.261, right width to 0.138, left distance to 31, and right distance to 25.",
+            session.session_id,
+            "en",
+        )
+    )
+
+    assert response.error is None
+    assert_chip(
+        store.get(session.session_id).forward_draft.chips[1].to_payload(),
+        chip_type="5to4",
+        left_width=0.261,
+        right_width=0.138,
+        left_distance=31.0,
+        right_distance=25.0,
+    )
+
+
+def test_english_e3_second_one_scope_does_not_overwrite_first_chip() -> None:
+    store = ConversationSessionStore()
+    session = store.create("en")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    chip1 = session.forward_draft.ensure_chip(1)
+    chip1.chip_type = "5to4"
+    chip1.left_width_mm = 0.261
+    chip1.right_width_mm = 0.138
+    chip1.left_bend_straight_distance_mm = 31.0
+    chip1.right_bend_straight_distance_mm = 25.0
+    session.active_chip_position = 1
+    before = session.forward_draft.chips[1].to_payload()
+    service = make_service(store=store)
+
+    response = service.handle_message(
+        request(
+            "For the second one, use 4to2, with left width 0.089, right width 0.04, left distance 25, and right distance 13.",
+            session.session_id,
+            "en",
+        )
+    )
+
+    draft = store.get(session.session_id).forward_draft
+    assert response.error is None
+    assert draft.chips[1].to_payload() == before
+    assert_chip(
+        draft.chips[2].to_payload(),
+        chip_type="4to2",
+        left_width=0.089,
+        right_width=0.04,
+        left_distance=25.0,
+        right_distance=13.0,
+    )
+
+
+def test_english_e4_multi_chip_composite_preserves_all_left_widths() -> None:
+    service = make_service(adapter=FakeForwardAdapter())
+
+    response = service.handle_message(
+        request(
+            "I want a forward prediction for 6 chips with Inlet1 at high concentration. "
+            "The first chip is 5to4 with left width 0.261, right width 0.138, left distance 31 and right distance 25; "
+            "the second chip is 4to2 with left width 0.089, right width 0.04, left distance 25 and right distance 13; "
+            "the third chip is 1to6 with left width 0.212, right width 0.236, left distance 7 and right distance 31.",
+            language="en",
+        )
+    )
+
+    summary = response.parameter_summary
+    assert response.error is None
+    assert response.state == "collecting"
+    assert summary["chip_count"] == 6
+    assert summary["inlet1"] == 1.0
+    assert summary["inlet2"] == 0.0
+    assert_chip(summary["chips"][0], chip_type="5to4", left_width=0.261, right_width=0.138, left_distance=31.0, right_distance=25.0)
+    assert_chip(summary["chips"][1], chip_type="4to2", left_width=0.089, right_width=0.04, left_distance=25.0, right_distance=13.0)
+    assert_chip(summary["chips"][2], chip_type="1to6", left_width=0.212, right_width=0.236, left_distance=7.0, right_distance=31.0)
+
+
+def test_english_e5_compact_forward_setup_with_chip_n_uses() -> None:
+    service = make_service(adapter=FakeForwardAdapter())
+
+    response = service.handle_message(
+        request(
+            "Help me set up a 6-chip forward prediction. Inlet1 should be high. "
+            "Chip 1 uses 5to4, left width 0.261, right width 0.138, left distance 31, right distance 25. "
+            "Chip 2 uses 4to2, left width 0.089, right width 0.04, left distance 25, right distance 13.",
+            language="en",
+        )
+    )
+
+    summary = response.parameter_summary
+    assert response.error is None
+    assert response.state == "collecting"
+    assert summary["chip_count"] == 6
+    assert summary["inlet1"] == 1.0
+    assert summary["inlet2"] == 0.0
+    assert_chip(summary["chips"][0], chip_type="5to4", left_width=0.261, right_width=0.138, left_distance=31.0, right_distance=25.0)
+    assert_chip(summary["chips"][1], chip_type="4to2", left_width=0.089, right_width=0.04, left_distance=25.0, right_distance=13.0)
+
+
+def test_english_e6_one_turn_reverse_reaches_confirmation() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    response = service.handle_message(
+        request(
+            "Please run a reverse prediction. Use Inlet2 as the high-concentration inlet. "
+            "The target concentrations are 0.08, 0.14, 0.25, 0.38, 0.48, and 0.58.",
+            language="en",
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.confirmation is not None
+    assert response.confirmation.mode == "reverse"
+    assert response.parameter_summary["inlet1"] == 0.0
+    assert response.parameter_summary["inlet2"] == 1.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert manager.calls == 0
+
+
+def test_english_e7_targets_first_then_inlet_regression() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    targets = service.handle_message(
+        request(
+            "I want the six target concentrations to be 0.08, 0.14, 0.25, 0.38, 0.48, and 0.58. Please do a reverse prediction.",
+            language="en",
+        )
+    )
+    response = service.handle_message(
+        request("Let's use Inlet2 as the high-concentration inlet.", targets.session_id, "en")
+    )
+
+    assert targets.error is None
+    assert targets.state == "collecting"
+    assert targets.missing_fields == ["inlet"]
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 0.0
+    assert response.parameter_summary["inlet2"] == 1.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_english_e8_reverse_inlet_first_then_target_values_regression() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    inlet = service.handle_message(
+        request("Start a reverse prediction with Inlet1 as the high-concentration inlet.", language="en")
+    )
+    response = service.handle_message(
+        request("The six target values are 0.08 0.14 0.25 0.38 0.48 0.58.", inlet.session_id, "en")
+    )
+
+    assert inlet.error is None
+    assert inlet.state == "collecting"
+    assert inlet.missing_fields == ["target_concentrations"]
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 1.0
+    assert response.parameter_summary["inlet2"] == 0.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_english_e9_reverse_inlet_update_preserves_mode_and_targets() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    initial = service.handle_message(
+        request(
+            "Run a reverse prediction with Inlet1 high. "
+            "The target concentrations are 0.08, 0.14, 0.25, 0.38, 0.48, and 0.58.",
+            language="en",
+        )
+    )
+    response = service.handle_message(
+        request("Actually, change the high-concentration inlet to Inlet2.", initial.session_id, "en")
+    )
+
+    assert initial.error is None
+    assert initial.state == "ready_for_confirmation"
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert "sample_name" not in response.parameter_summary
+    assert response.parameter_summary["inlet1"] == 0.0
+    assert response.parameter_summary["inlet2"] == 1.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert "chip_count" not in response.missing_fields
+
+
+def test_english_e10_reverse_generic_concentration_anchor_with_quantity_protection() -> None:
+    service = make_service(reverse_manager=FakeReverseTaskManager())
+
+    response = service.handle_message(
+        request(
+            "I need a reverse prediction for six target positions. "
+            "The concentrations are 0.08, 0.14, 0.25, 0.38, 0.48, and 0.58, with Inlet1 high.",
+            language="en",
+        )
+    )
+
+    assert response.error is None
+    assert response.state == "ready_for_confirmation"
+    assert response.parameter_summary["inlet1"] == 1.0
+    assert response.parameter_summary["inlet2"] == 0.0
+    assert response.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert 6.0 not in response.parameter_summary["target_concentrations"]
+
+
+def test_english_explicit_scope_failure_does_not_fallback_to_active_chip() -> None:
+    store = ConversationSessionStore()
+    session = store.create("en")
+    session.active_mode = "forward"
+    session.forward_draft.set_chip_count(6)
+    session.active_chip_position = 1
+    session.forward_draft.chips[1].left_width_mm = 0.261
+    before = session.forward_draft.summary()
+    service = make_service(store=store)
+
+    response = service.handle_message(request("For chip X, use 4to2, left width 0.089", session.session_id, "en"))
+
+    assert response.error is not None
+    assert response.error.code == "AMBIGUOUS_INPUT"
+    assert store.get(session.session_id).forward_draft.summary() == before
+    assert store.get(session.session_id).active_chip_position == 1
+
+
+def test_english_forward_reverse_intent_conflict_is_atomic() -> None:
+    store = ConversationSessionStore()
+    session = store.create("en")
+    before_forward = session.forward_draft.summary()
+    before_reverse = session.reverse_draft.summary()
+    service = make_service(store=store)
+
+    response = service.handle_message(
+        request("Run a forward and reverse prediction with Inlet1 high.", session.session_id, "en")
+    )
+
+    assert response.error is not None
+    assert response.error.code == "AMBIGUOUS_INPUT"
+    assert store.get(session.session_id).forward_draft.summary() == before_forward
+    assert store.get(session.session_id).reverse_draft.summary() == before_reverse
+
+
+def test_english_reverse_target_count_contracts_remain_safe() -> None:
+    manager = FakeReverseTaskManager()
+    service = make_service(reverse_manager=manager)
+
+    five = service.handle_message(
+        request("Reverse prediction with Inlet1 high. Target concentrations are 0.08 0.14 0.25 0.38 0.48.", language="en")
+    )
+    six = service.handle_message(
+        request(
+            "Reverse prediction with Inlet1 high. Target concentrations are 0.08 0.14 0.25 0.38 0.48 0.58.",
+            language="en",
+        )
+    )
+    seven = service.handle_message(
+        request(
+            "Reverse prediction with Inlet1 high. Target concentrations are 0.08 0.14 0.25 0.38 0.48 0.58 0.63.",
+            language="en",
+        )
+    )
+
+    assert five.state == "collecting"
+    assert five.missing_fields == ["target_concentrations"]
+    assert six.state == "ready_for_confirmation"
+    assert six.parameter_summary["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+    assert seven.state == "collecting"
+    assert seven.missing_fields == ["target_concentrations"]
+    assert manager.calls == 0
+
+
 def test_chinese_chip_type_updates_draft() -> None:
     store = ConversationSessionStore()
     session = store.create("zh-CN")

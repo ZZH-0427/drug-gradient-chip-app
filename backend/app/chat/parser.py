@@ -103,6 +103,18 @@ ENGLISH_ORDINALS = {
     "ninth": 9,
     "tenth": 10,
 }
+ENGLISH_CARDINALS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
 
 
 @dataclass(frozen=True)
@@ -121,7 +133,11 @@ class DeterministicChatParser:
         language = parse_language_switch(text)
         if language:
             return ParsedMessage(intent="switch_language", fields={"language": language})
-        if has_any(text, ["help", ZH_HELP, ZH_HOW_TO_USE]):
+        starts_forward = has_forward_intent(text)
+        starts_reverse = has_reverse_intent(text)
+        if starts_forward and starts_reverse:
+            return ParsedMessage(intent="unknown", ambiguity="conflicting_prediction_mode")
+        if has_any(text, ["help", ZH_HELP, ZH_HOW_TO_USE]) and not has_actionable_prediction_context(text):
             return ParsedMessage(intent="help")
         if has_any(text, ["reset", ZH_RESET, ZH_CLEAR, ZH_RESET_SHORT]):
             return ParsedMessage(intent="reset")
@@ -129,9 +145,6 @@ class DeterministicChatParser:
             return ParsedMessage(intent="cancel")
         if has_any(text, ["show", "summary", "parameters", ZH_CURRENT_PARAMETERS, ZH_SHOW_PARAMETERS, ZH_VIEW_PARAMETERS]):
             return ParsedMessage(intent="show_parameters")
-        if has_run_intent(text):
-            return ParsedMessage(intent="run_prediction")
-
         reverse_targets = parse_reverse_targets(text)
         if reverse_targets is not None:
             fields: dict[str, Any] = {"target_concentrations": reverse_targets}
@@ -162,7 +175,7 @@ class DeterministicChatParser:
                 ambiguity=chip_parameter.ambiguity,
             )
 
-        starts_reverse = has_any(text, ["reverse", ZH_REVERSE])
+        starts_reverse = has_reverse_intent(text)
         if starts_reverse:
             inlet, inlet_ambiguity = parse_inlet_relation(text)
             if inlet_ambiguity is not None:
@@ -178,11 +191,14 @@ class DeterministicChatParser:
             return ParsedMessage(intent="set_inlet", fields={"inlet1": inlet[0], "inlet2": inlet[1]})
 
         chip_count = parse_chip_count(text)
-        starts_forward = has_any(text, ["forward", ZH_FORWARD, ZH_FRONTWARD])
+        starts_forward = has_forward_intent(text)
         if starts_forward:
             return ParsedMessage(intent="start_forward", fields={"chip_count": chip_count} if chip_count else {})
         if chip_count is not None:
             return ParsedMessage(intent="set_chip_count", fields={"chip_count": chip_count})
+
+        if has_run_intent(text):
+            return ParsedMessage(intent="run_prediction")
 
         numbers = extract_numbers(text)
         if numbers:
@@ -220,6 +236,25 @@ def has_run_intent(text: str) -> bool:
     )
 
 
+def has_forward_intent(text: str) -> bool:
+    return has_any(text, ["forward", ZH_FORWARD, ZH_FRONTWARD])
+
+
+def has_reverse_intent(text: str) -> bool:
+    return has_any(text, ["reverse", ZH_REVERSE])
+
+
+def has_actionable_prediction_context(text: str) -> bool:
+    return (
+        has_forward_intent(text)
+        or has_reverse_intent(text)
+        or parse_chip_count(text) is not None
+        or parse_inlet(text) is not None
+        or parse_chip_parameter(text).fields
+        or reverse_target_region(text) is not None
+    )
+
+
 def parse_language_switch(text: str) -> str | None:
     lowered = text.lower()
     if "switch" in lowered and ("english" in lowered or "en" in lowered):
@@ -235,7 +270,7 @@ def parse_language_switch(text: str) -> str | None:
 
 def parse_chip_count(text: str) -> int | None:
     patterns = [
-        rf"(?:use|with|set|{ZH_DO}|{ZH_USE}|{ZH_SET})?\s*({NUMBER_PATTERN})\s*(?:chips?|{ZH_UNIT_CHIP}|{ZH_CHIP})",
+        rf"(?:use|with|set|{ZH_DO}|{ZH_USE}|{ZH_SET})?\s*({NUMBER_PATTERN})\s*-?\s*(?:chips?|{ZH_UNIT_CHIP}|{ZH_CHIP})",
         rf"(?:chips?|{ZH_CHIP_COUNT}|{ZH_CHIP_COUNT_SHORT})\s*(?:=|{ZH_TO}|{ZH_IS}|to)?\s*({NUMBER_PATTERN})",
     ]
     for pattern in patterns:
@@ -245,6 +280,9 @@ def parse_chip_count(text: str) -> int | None:
             value = float(match.group(1))
             if value.is_integer():
                 return int(value)
+    for word, value in ENGLISH_CARDINALS.items():
+        if re.search(rf"\b{word}\s*-?\s*chips?\b", text, flags=re.IGNORECASE):
+            return value
     return None
 
 
@@ -305,8 +343,8 @@ def parse_p_values(text: str) -> dict[int, float]:
 
 
 def parse_forward_composite(text: str) -> ParsedMessage:
-    starts_forward = has_any(text, ["forward", ZH_FORWARD, ZH_FRONTWARD])
-    starts_reverse = has_any(text, ["reverse", ZH_REVERSE])
+    starts_forward = has_forward_intent(text)
+    starts_reverse = has_reverse_intent(text)
     chip_count = parse_chip_count(text)
     inlet, inlet_ambiguity = parse_inlet_relation(text)
     if inlet_ambiguity is not None:
@@ -318,9 +356,7 @@ def parse_forward_composite(text: str) -> ParsedMessage:
         has_scope_cue = has_explicit_chip_scope_cue(segment)
         position = parse_chip_position(segment)
         if has_scope_cue and position is None:
-            update_without_context = parse_chip_update_segment(segment)
-            if update_without_context.fields or update_without_context.ambiguity or extract_numbers(segment):
-                return ParsedMessage(intent="set_chip_parameter", ambiguity="ambiguous_chip_position")
+            return ParsedMessage(intent="set_chip_parameter", ambiguity="ambiguous_chip_position")
         if position is not None:
             current_position = position
         update = parse_chip_update_segment(segment, current_position)
@@ -392,18 +428,21 @@ def parse_chip_update_segment(text: str, current_position: int | None = None) ->
     chip_type = parse_chip_type(text)
     if chip_type is None and position is not None:
         chip_type = parse_chip_type_value(text)
-    if chip_type is not None:
-        return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_type": chip_type})
-    if (has_chip_type_context(text) or position is not None) and INVALID_CHIP_TYPE_PATTERN.search(text):
+    if chip_type is None and effective_position is not None and has_chip_type_value_context(text):
+        chip_type = parse_chip_type_value(text)
+    if chip_type is None and (has_chip_type_context(text) or position is not None) and INVALID_CHIP_TYPE_PATTERN.search(text):
         return ParsedMessage(ambiguity="invalid_chip_type")
+    base_fields: dict[str, Any] = {"chip_position": effective_position, "explicit_position": position is not None}
+    if chip_type is not None:
+        base_fields["chip_type"] = chip_type
 
     paired_widths = parse_paired_widths(text)
     if paired_widths:
-        return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_updates": paired_widths})
+        return ParsedMessage(fields={**base_fields, "chip_updates": paired_widths})
 
     paired_distances = parse_paired_distances(text)
     if paired_distances:
-        return ParsedMessage(fields={"chip_position": effective_position, "explicit_position": position is not None, "chip_updates": paired_distances})
+        return ParsedMessage(fields={**base_fields, "chip_updates": paired_distances})
 
     field_name = parse_chip_field(text)
     if field_name is not None:
@@ -412,12 +451,14 @@ def parse_chip_update_segment(text: str, current_position: int | None = None) ->
             return ParsedMessage(ambiguity="chip_parameter_without_value")
         return ParsedMessage(
             fields={
-                "chip_position": effective_position,
-                "explicit_position": position is not None,
+                **base_fields,
                 "chip_field": field_name,
                 "value": values[-1],
             }
         )
+
+    if chip_type is not None:
+        return ParsedMessage(fields=base_fields)
 
     if position is None and has_any(text, [ZH_CHANGE_TO, ZH_SET_TO, "change to", "set to"]) and extract_numbers(text):
         return ParsedMessage(ambiguity="parameter_without_target")
@@ -507,6 +548,13 @@ def has_chip_type_context(text: str) -> bool:
     )
 
 
+def has_chip_type_value_context(text: str) -> bool:
+    lowered = text.lower().strip()
+    if CHIP_TYPE_PATTERN.fullmatch(lowered):
+        return True
+    return bool(re.search(r"\b(?:use|uses|using|is|as|to)\b\s*" + CHIP_TYPE_PATTERN.pattern, lowered, flags=re.IGNORECASE))
+
+
 def parse_paired_widths(text: str) -> dict[str, float]:
     has_left = has_any(text, ["left width", ZH_LEFT_WIDTH, ZH_LEFT_WIDTH_SHORT, ZH_LEFT_SIDE_WIDTH, ZH_LEFT_EDGE_WIDTH])
     has_right = has_any(text, ["right width", ZH_RIGHT_WIDTH, ZH_RIGHT_WIDTH_SHORT, ZH_RIGHT_SIDE_WIDTH, ZH_RIGHT_EDGE_WIDTH])
@@ -572,6 +620,9 @@ def parse_chip_position(text: str) -> int | None:
     match = re.search(r"chip\s*(\d{1,2})", lowered)
     if match:
         return int(match.group(1))
+    match = re.search(r"position\s*(\d{1,2})", lowered)
+    if match:
+        return int(match.group(1))
     match = re.search(rf"(\d{{1,2}})\s*\u53f7\s*{ZH_CHIP}", text)
     if match:
         return int(match.group(1))
@@ -603,7 +654,7 @@ def parse_chip_position(text: str) -> int | None:
     if match:
         return CHINESE_DIGITS[match.group(1)]
     for ordinal, value in ENGLISH_ORDINALS.items():
-        if re.search(rf"\b{ordinal}\s+chip\b", lowered):
+        if re.search(rf"\b{ordinal}\s+(?:chip|one)\b", lowered):
             return value
     return None
 
@@ -616,6 +667,9 @@ def has_explicit_chip_scope_cue(text: str) -> bool:
             r"\u7b2c\s*(?:\d{1,2}|[" + chinese_digit_class + r"]|[A-Za-z]+)\s*(?:\u4e2a)?\s*(?:" + ZH_CHIP + r"|" + ZH_POSITION + r")?",
             rf"{ZH_POSITION}\s*(?:\d{{1,2}}|[{chinese_digit_class}])",
             r"\d{1,2}\s*\u53f7\s*(?:" + ZH_CHIP + r")?",
+            r"\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(?:chip|one)\b",
+            r"(?<!-)\b(?:chip|position)\s+\d{1,2}\b",
+            r"(?<!-)\b(?:chip|position)\s+(?!type\b)[A-Za-z]+\b",
         ]
     )
 
@@ -671,11 +725,26 @@ def reverse_target_region(text: str) -> str | None:
         rf"(?:\u516d|6)\s*\u4e2a\s*{ZH_POSITION}\s*\u7684\s*{ZH_CONCENTRATION}\s*(?:\u53d8\u6210|{ZH_SEPARATELY}\s*{ZH_IS}|{ZH_IS}|{ZH_TO}|:|=)?",
         rf"(?:\u516d|6)\s*\u4e2a\s*{ZH_TARGET}(?:\u503c|{ZH_CONCENTRATION})\s*(?:\u4f9d\u6b21|{ZH_SEPARATELY})?\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
         rf"(?:\u6211\u5e0c\u671b)?(?:\u516d|6)\s*\u4e2a\s*{ZH_POSITION}\s*\u6700\u540e\s*\u7684\s*{ZH_CONCENTRATION}\s*{ZH_SEPARATELY}\s*(?:{ZH_IS}|{ZH_TO}|:|=)?",
-        r"target\s+concentrations?\s*(?:are|is|:|=)?",
+        r"(?:the\s+)?(?:six|6)\s+target\s+(?:concentrations?|values?)\s*(?:are|is|should\s+be|to\s+be|:|=)?",
+        r"(?:the\s+)?target\s+concentrations?\s*(?:are|is|should\s+be|to\s+be|:|=)?",
+        r"(?:the\s+)?target\s+values?\s*(?:are|is|should\s+be|to\s+be|:|=)?",
         r"targets?\s*(?:are|is|:|=)?",
     ]
+    if has_reverse_intent(text) or re.search(r"\b(?:six|6)\s+target\s+(?:positions?|concentrations?|values?)\b", text, flags=re.IGNORECASE):
+        anchor_patterns.extend(
+            [
+                r"(?:the\s+)?concentrations?\s*(?:are|is|should\s+be|to\s+be|:|=)?",
+            ]
+        )
     for pattern in anchor_patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return text[match.end() :]
+            return trim_reverse_target_region(text[match.end() :])
     return None
+
+
+def trim_reverse_target_region(region: str) -> str:
+    match = re.search(r"\b(?:with|using|use|and\s+use|let'?s\s+use)\s+inlet\s*\d\b", region, flags=re.IGNORECASE)
+    if match:
+        return region[: match.start()]
+    return region

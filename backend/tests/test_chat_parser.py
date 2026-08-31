@@ -25,6 +25,20 @@ def test_parser_detects_english_start_forward_with_chip_count() -> None:
     assert parsed.fields["chip_count"] == 6
 
 
+def test_parser_detects_english_forward_run_phrases_with_chip_count_and_inlet() -> None:
+    for message in [
+        "Please run a forward prediction for 6 chips. Use Inlet1 as the high-concentration inlet.",
+        "do a forward prediction with 6 chips. Inlet2 should be high.",
+        "Help me set up a 6-chip forward prediction. Inlet1 high.",
+        "forward prediction with six chips. Inlet1 is the high-concentration inlet.",
+    ]:
+        parsed = parse(message)
+
+        assert parsed.intent == "start_forward"
+        assert parsed.fields["chip_count"] == 6
+        assert {"inlet1", "inlet2"}.issubset(parsed.fields)
+
+
 def test_parser_detects_start_reverse() -> None:
     assert parse(zh(r"\u505a\u53cd\u5411\u9884\u6d4b")).intent == "start_reverse"
     assert parse("start reverse prediction").intent == "start_reverse"
@@ -178,6 +192,26 @@ def test_parser_detects_english_chip_type() -> None:
     assert parsed.fields == {"chip_position": 2, "chip_type": "4to5"}
 
 
+def test_parser_detects_english_colloquial_chip_scope_and_type() -> None:
+    cases = [
+        ("For the first chip, use 5to4", 1, "5to4"),
+        ("For the second one, use 4to2", 2, "4to2"),
+        ("The first chip uses 5to4", 1, "5to4"),
+        ("The first chip is 5to4", 1, "5to4"),
+        ("Chip 1 uses 5to4", 1, "5to4"),
+        ("Chip 2 is 4to2", 2, "4to2"),
+        ("Chip 1: 5to4", 1, "5to4"),
+        ("position 3 uses 1to6", 3, "1to6"),
+    ]
+
+    for message, position, chip_type in cases:
+        parsed = parse(message)
+
+        assert parsed.intent == "set_chip_parameter"
+        assert parsed.fields["chip_position"] == position
+        assert parsed.fields["chip_type"] == chip_type
+
+
 def test_parser_rejects_invalid_chip_type_as_ambiguous() -> None:
     parsed = parse("set chip 2 chip type to 7to4")
 
@@ -264,6 +298,34 @@ def test_parser_rejects_malformed_reverse_target_tokens() -> None:
 
         assert parsed.intent != "set_target_concentration"
         assert "target_concentrations" not in parsed.fields
+
+
+def test_parser_accepts_english_reverse_target_anchors_and_trailing_inlet_clause() -> None:
+    messages = [
+        "The target concentrations are 0.08, 0.14, 0.25, 0.38, 0.48, and 0.58.",
+        "The target concentrations should be 0.08 0.14 0.25 0.38 0.48 0.58.",
+        "The six target values are 0.08 0.14 0.25 0.38 0.48 0.58.",
+        "I need a reverse prediction for six target positions. The concentrations are 0.08, 0.14, 0.25, 0.38, 0.48, and 0.58, with Inlet1 high.",
+    ]
+
+    for message in messages:
+        parsed = parse(message)
+
+        assert parsed.intent == "set_target_concentration"
+        assert parsed.fields["target_concentrations"] == [0.08, 0.14, 0.25, 0.38, 0.48, 0.58]
+
+
+def test_parser_rejects_unresolved_english_explicit_chip_scope_without_context_fallback() -> None:
+    parsed = parse("For chip X, use 4to2, left width 0.089")
+
+    assert parsed.intent == "set_chip_parameter"
+    assert parsed.ambiguity == "ambiguous_chip_position"
+
+
+def test_parser_rejects_forward_reverse_intent_conflict() -> None:
+    parsed = parse("Run a forward and reverse prediction with Inlet1 high.")
+
+    assert parsed.ambiguity == "conflicting_prediction_mode"
 
 
 def test_parser_accepts_colloquial_chip_position_and_type_scope() -> None:
