@@ -47,11 +47,16 @@ describe("desktop responsive layout safeguards", () => {
     expect(ruleFor(".summary-list dd")).toContain("overflow-wrap: anywhere");
   });
 
-  it("removes fixed table minimum widths and nowrap cells that widen the desktop viewport", () => {
+  it("keeps responsive tables without forcing header words to break internally", () => {
     expect(ruleFor(".table-wrap")).toContain("overflow-x: clip");
     expect(ruleFor("table")).toContain("table-layout: fixed");
     expect(ruleFor("th,\ntd")).toContain("white-space: normal");
-    expect(ruleFor("th,\ntd")).toContain("overflow-wrap: anywhere");
+    expect(ruleFor("th,\ntd")).not.toContain("white-space: nowrap");
+    expect(ruleFor("th")).toContain("overflow-wrap: normal");
+    expect(ruleFor("th")).toContain("word-break: normal");
+    expect(ruleFor("th")).toContain("hyphens: manual");
+    expect(ruleFor("td")).toContain("overflow-wrap: anywhere");
+    expect(ruleFor("td")).toContain("word-break: break-word");
     expect(ruleFor(".input-table")).toContain("min-width: 0");
     expect(ruleFor(".result-table")).toContain("min-width: 0");
     expect(ruleFor(".compact-table")).toContain("min-width: 0");
@@ -73,6 +78,11 @@ describe("desktop responsive layout safeguards", () => {
     expect(container.querySelector(".chat-messages")).toBeInTheDocument();
     expect(container.querySelector(".chat-composer")).toBeInTheDocument();
     expect(container.querySelector(".chat-side")).toBeInTheDocument();
+  });
+
+  it("keeps the Assistant summary responsive breakpoint single-column", () => {
+    expect(mediaRuleFor("max-width: 980px", ".chat-layout")).toContain("grid-template-columns: 1fr");
+    expect(mediaRuleFor("max-width: 980px", ".chat-message")).toContain("max-width: 100%");
   });
 
   it("keeps required long Assistant prompts inside wrapping message bubbles", () => {
@@ -104,9 +114,13 @@ describe("desktop responsive layout safeguards", () => {
 });
 
 function ruleFor(selector: string): string {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = styles.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]*)\\}`, "m"));
-  return match?.groups?.body ?? "";
+  const matches = styles.matchAll(/(?:^|\n)(?<selector>[^@{}\n][^{}]*)\{(?<body>[^}]*)\}/gm);
+  for (const match of matches) {
+    if (match.groups?.selector.trim() === selector) {
+      return match.groups.body;
+    }
+  }
+  return "";
 }
 
 function mediaRuleFor(query: string, selector: string): string {

@@ -404,14 +404,20 @@ td {
   border-bottom: 1px solid #e1e7f0;
   text-align: left;
   white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 th {
   color: #42526a;
   font-size: 0.86rem;
   background: #f3f6fa;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: manual;
+}
+
+td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .input-table {
