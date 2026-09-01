@@ -262,6 +262,33 @@ describe("Assistant structured cards", () => {
     expect(requestBody(fetchMock, 1).message).toBe("run");
   });
 
+  it("keeps forward inlet selection displayed as binary values", async () => {
+    const user = userEvent.setup();
+    mockFetch(
+      jsonResponse(
+        chatResponse({
+          state: "ready_for_confirmation",
+          assistant_message: "Ready.",
+          confirmation: {
+            mode: "forward",
+            summary: completeForwardSummary(),
+          },
+          parameter_summary: completeForwardSummary(),
+        }),
+      ),
+    );
+    renderChatPage();
+
+    await sendMessage(user, "show forward parameters");
+
+    const cards = await screen.findAllByRole("region", { name: "Parameter Summary" });
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(within(card).getByText("Inlet Selection")).toBeInTheDocument();
+      expect(within(card).getByText("Inlet1=1, Inlet2=0")).toBeInTheDocument();
+    }
+  });
+
   it("blocks rapid Run Prediction clicks with the shared synchronous lock", async () => {
     const user = userEvent.setup();
     let resolveRun: (response: Response) => void = () => undefined;
@@ -315,7 +342,7 @@ describe("Assistant structured cards", () => {
     expect(messageBox()).toHaveFocus();
   });
 
-  it("renders reverse target summaries as fixed six labeled positions", async () => {
+  it("renders reverse target summaries with fixed six labeled positions and binary inlet display", async () => {
     const user = userEvent.setup();
     mockFetch(
       jsonResponse(
@@ -337,7 +364,8 @@ describe("Assistant structured cards", () => {
       expect(within(card).getByText("Target Positions")).toBeInTheDocument();
       expect(within(card).getByText("6 (fixed)")).toBeInTheDocument();
       expect(within(card).getByText("Inlet Selection")).toBeInTheDocument();
-      expect(within(card).getByText("Inlet 1: High concentration; Inlet 2: Low concentration")).toBeInTheDocument();
+      expect(within(card).getByText("Inlet1=1, Inlet2=0")).toBeInTheDocument();
+      expect(within(card).queryByText("Inlet 1: High concentration; Inlet 2: Low concentration")).not.toBeInTheDocument();
       expect(within(card).getAllByText("Target Concentration")).toHaveLength(1);
       expect(within(card).getByRole("cell", { name: "1" })).toBeInTheDocument();
       expect(within(card).getByRole("cell", { name: "6" })).toBeInTheDocument();
@@ -346,6 +374,56 @@ describe("Assistant structured cards", () => {
       expect(within(card).queryByText(/^Target Concentration:/)).not.toBeInTheDocument();
       expect(within(card).queryByText("Sample Name")).not.toBeInTheDocument();
     }
+  });
+
+  it("renders reverse Inlet2-high summaries and confirmation with binary inlet display", async () => {
+    const user = userEvent.setup();
+    mockFetch(
+      jsonResponse(
+        chatResponse({
+          state: "ready_for_confirmation",
+          assistant_message: "Ready.",
+          confirmation: { mode: "reverse", summary: reverseSummary({ inlet1: 0, inlet2: 1 }) },
+          parameter_summary: reverseSummary({ inlet1: 0, inlet2: 1 }),
+        }),
+      ),
+    );
+    renderChatPage();
+
+    await sendMessage(user, "show reverse parameters");
+
+    const cards = await screen.findAllByRole("region", { name: "Parameter Summary" });
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(within(card).getByText("Inlet1=0, Inlet2=1")).toBeInTheDocument();
+      expect(within(card).queryByText(/High concentration|Low concentration/)).not.toBeInTheDocument();
+    }
+  });
+
+  it("keeps reverse binary inlet display stable when switching languages", async () => {
+    const user = userEvent.setup();
+    mockFetch(
+      jsonResponse(
+        chatResponse({
+          state: "ready_for_confirmation",
+          assistant_message: "Ready.",
+          confirmation: { mode: "reverse", summary: reverseSummary() },
+          parameter_summary: reverseSummary(),
+        }),
+      ),
+    );
+    renderChatPage({ withLanguageSwitcher: true });
+
+    await sendMessage(user, "show reverse parameters");
+    expect(await screen.findAllByText("Inlet1=1, Inlet2=0")).toHaveLength(2);
+
+    const languageButton = document.querySelector<HTMLButtonElement>(".language-switcher button[aria-pressed='false']");
+    expect(languageButton).not.toBeNull();
+    await user.click(languageButton as HTMLButtonElement);
+
+    expect(screen.getAllByText("Inlet1=1, Inlet2=0")).toHaveLength(2);
+    expect(document.body.textContent).not.toMatch(/High concentration|Low concentration/);
+    expect(messageBox()).toHaveValue("");
   });
 
   it("renders forward_prediction rows from the backend response", async () => {
@@ -855,7 +933,7 @@ function completeForwardSummary() {
   };
 }
 
-function reverseSummary() {
+function reverseSummary(overrides: Partial<{ inlet1: number; inlet2: number }> = {}) {
   const targets = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
   return {
     inlet1: 1,
@@ -866,6 +944,7 @@ function reverseSummary() {
       position: index + 1,
       target_concentration: target,
     })),
+    ...overrides,
   };
 }
 

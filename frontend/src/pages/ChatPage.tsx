@@ -8,7 +8,6 @@ import type {
   ReverseTaskStatusResponse,
 } from "../api/types";
 import { apiClientErrorMessage } from "../i18n/errorMessages";
-import type { I18nContextValue } from "../i18n/context";
 import { useI18n } from "../i18n/useI18n";
 import { usePageTitle } from "../i18n/usePageTitle";
 
@@ -280,7 +279,7 @@ function ParameterSummaryCard({
         <dl className="summary-list">
           <div>
             <dt>{t("common.inletSelection")}</dt>
-            <dd>{reverseInletSummary(summary, t)}</dd>
+            <dd>{reverseInletSummary(summary)}</dd>
           </div>
           <div>
             <dt>{t("assistant.reverseTargetPositionCount")}</dt>
@@ -392,14 +391,11 @@ function ParameterSummaryCard({
   );
 }
 
-function reverseInletSummary(summary: ParameterSummary, t: I18nContextValue["t"]): string {
-  if (summary.inlet1 === 1 && summary.inlet2 === 0) {
-    return `${t("common.inlet1")}: ${t("common.highConcentration")}; ${t("common.inlet2")}: ${t("common.lowConcentration")}`;
+function reverseInletSummary(summary: ParameterSummary): string {
+  if (summary.inlet1 === undefined && summary.inlet2 === undefined) {
+    return "—";
   }
-  if (summary.inlet1 === 0 && summary.inlet2 === 1) {
-    return `${t("common.inlet1")}: ${t("common.lowConcentration")}; ${t("common.inlet2")}: ${t("common.highConcentration")}`;
-  }
-  return t("assistant.notSet");
+  return `Inlet1=${displayValue(summary.inlet1)}, Inlet2=${displayValue(summary.inlet2)}`;
 }
 
 function reverseTargetPositions(summary: ParameterSummary, targets: unknown[]) {
