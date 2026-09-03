@@ -8,7 +8,6 @@ from app.chat.schemas import ChatLanguage, ChatMode, ChatState
 from app.schemas.forward import ForwardPredictionRequest
 from app.schemas.reverse import ReverseDesignRequest
 
-
 DEFAULT_SAMPLE_NAME = "chat-forward"
 
 
@@ -142,10 +141,16 @@ class ReverseDraft:
         return not self.missing_fields()
 
     def summary(self) -> dict[str, Any]:
+        targets = list(self.target_concentrations)
         return {
             "inlet1": self.inlet1,
             "inlet2": self.inlet2,
-            "target_concentrations": list(self.target_concentrations),
+            "target_position_count": 6,
+            "target_concentrations": targets,
+            "target_positions": [
+                {"position": index + 1, "target_concentration": concentration}
+                for index, concentration in enumerate(targets)
+            ],
         }
 
     def to_request(self) -> ReverseDesignRequest:
@@ -167,6 +172,7 @@ class ConversationSession:
     last_forward_result: Any = None
     last_reverse_task_id: str | None = None
     pending_confirmation: ChatMode | None = None
+    active_chip_position: int | None = None
 
     def reset(self) -> None:
         self.active_mode = "idle"
@@ -176,10 +182,12 @@ class ConversationSession:
         self.last_forward_result = None
         self.last_reverse_task_id = None
         self.pending_confirmation = None
+        self.active_chip_position = None
 
     def cancel_current_draft(self) -> None:
         if self.active_mode == "forward":
             self.forward_draft = ForwardDraft()
+            self.active_chip_position = None
         elif self.active_mode == "reverse":
             self.reverse_draft = ReverseDraft()
         self.active_mode = "idle"

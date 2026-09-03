@@ -16,6 +16,34 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     temp.replace(path)
 
 
+def reverse_request_values(request: dict[str, Any]) -> tuple[float, float, list[float]]:
+    if "inlet1" not in request or "inlet2" not in request:
+        raise ValueError("Reverse request must include inlet1 and inlet2.")
+    if "target_concentrations" not in request:
+        raise ValueError("Reverse request must include target_concentrations.")
+    targets = [float(item) for item in request["target_concentrations"]]
+    if len(targets) != 6:
+        raise ValueError("Reverse request requires exactly six target concentrations.")
+    return float(request["inlet1"]), float(request["inlet2"]), targets
+
+
+def run_reverse_request(
+    request: dict[str, Any],
+    *,
+    device: str,
+    checkpoint_path: Path,
+) -> dict[str, Any]:
+    inlet1, inlet2, target_concentrations = reverse_request_values(request)
+    return run_reverse_design(
+        inlet1=inlet1,
+        inlet2=inlet2,
+        target_concentrations=target_concentrations,
+        device=device,
+        checkpoint_path=checkpoint_path,
+        parameters=ReverseOptimizationParameters(),
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--request-json", type=Path, required=True)
@@ -27,13 +55,10 @@ def main() -> None:
 
     try:
         request = json.loads(args.request_json.read_text(encoding="utf-8"))
-        result = run_reverse_design(
-            inlet1=float(request["inlet1"]),
-            inlet2=float(request["inlet2"]),
-            target_concentrations=[float(item) for item in request["target_concentrations"]],
+        result = run_reverse_request(
+            request,
             device=args.device,
             checkpoint_path=args.checkpoint,
-            parameters=ReverseOptimizationParameters(),
         )
         write_json(args.result_json, {"ok": True, "result": result})
     except ModelRuntimeError as exc:

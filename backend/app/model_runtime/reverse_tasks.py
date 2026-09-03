@@ -149,6 +149,25 @@ def reverse_worker_popen_options(
     return options
 
 
+def reverse_task_request_payload(request: object) -> dict[str, Any]:
+    if isinstance(request, ReverseDesignRequest):
+        return request.model_dump()
+    inlet1 = getattr(request, "inlet1", None)
+    inlet2 = getattr(request, "inlet2", None)
+    target_concentrations = getattr(request, "target_concentrations", None)
+    if inlet1 is None or inlet2 is None:
+        raise ValueError("Reverse task request must include inlet1 and inlet2.")
+    if not isinstance(target_concentrations, list):
+        raise ValueError("Reverse task request must include target_concentrations.")
+    if len(target_concentrations) != 6:
+        raise ValueError("Reverse task request requires exactly six target concentrations.")
+    return {
+        "inlet1": float(inlet1),
+        "inlet2": float(inlet2),
+        "target_concentrations": [float(item) for item in target_concentrations],
+    }
+
+
 @dataclass
 class ReverseTaskManager:
     root: Path
@@ -158,7 +177,7 @@ class ReverseTaskManager:
     def default(cls) -> "ReverseTaskManager":
         return cls(root=runtime_root())
 
-    def create(self, request: ReverseDesignRequest, *, device: str = "cpu") -> ReverseTaskStatusResponse:
+    def create(self, request: object, *, device: str = "cpu") -> ReverseTaskStatusResponse:
         self.root.mkdir(parents=True, exist_ok=True)
         active = self._active_task()
         if active is not None:
@@ -172,7 +191,7 @@ class ReverseTaskManager:
         result_path = task_dir / "result.json"
         state_path = task_dir / "state.json"
         task_dir.mkdir(parents=True, exist_ok=False)
-        write_json_atomically(request_path, request.model_dump())
+        write_json_atomically(request_path, reverse_task_request_payload(request))
 
         state: dict[str, Any] = {
             "schema_version": 1,
