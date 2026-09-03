@@ -5,6 +5,8 @@ import App from "./App";
 import { I18nProvider } from "./i18n/I18nProvider";
 import styles from "./styles.css?raw";
 
+const normalizedStyles = styles.replace(/\r\n?/g, "\n");
+
 afterEach(() => {
   cleanup();
 });
@@ -15,7 +17,7 @@ describe("desktop responsive layout safeguards", () => {
     expect(ruleFor(".app-shell")).toContain("overflow-x: clip");
     expect(ruleFor("main")).toContain("overflow-x: clip");
     expect(ruleFor(".page-section")).toContain("min-width: 0");
-    expect(styles).not.toContain("width: 100vw");
+    expect(normalizedStyles).not.toContain("width: 100vw");
   });
 
   it("allows long Assistant messages to wrap without widening the chat layout", () => {
@@ -114,7 +116,7 @@ describe("desktop responsive layout safeguards", () => {
 });
 
 function ruleFor(selector: string): string {
-  const matches = styles.matchAll(/(?:^|\n)(?<selector>[^@{}\n][^{}]*)\{(?<body>[^}]*)\}/gm);
+  const matches = normalizedStyles.matchAll(/(?:^|\n)(?<selector>[^@{}\n][^{}]*)\{(?<body>[^}]*)\}/gm);
   for (const match of matches) {
     if (match.groups?.selector.trim() === selector) {
       return match.groups.body;
@@ -126,7 +128,7 @@ function ruleFor(selector: string): string {
 function mediaRuleFor(query: string, selector: string): string {
   const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = styles.match(
+  const match = normalizedStyles.match(
     new RegExp(`@media\\s*\\(${escapedQuery}\\)\\s*\\{[\\s\\S]*?${escapedSelector}\\s*\\{(?<body>[^}]*)\\}`, "m"),
   );
   return match?.groups?.body ?? "";
