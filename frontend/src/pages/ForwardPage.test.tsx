@@ -66,7 +66,7 @@ describe("Forward localized chip-count form", () => {
     expect(positionCells()).toHaveLength(6);
     expect(screen.getByText("P1/P2")).toBeInTheDocument();
     expect(screen.getByText("P11/P12")).toBeInTheDocument();
-    expect(document.title).toBe("正向预测 | 药物浓度梯度芯片");
+    expect(document.title).toBe("正向预测 | 智能药物浓度预测平台");
 
     for (let position = 1; position <= 6; position += 1) {
       expectWidthAttributes(leftWidthInput(position));

@@ -30,6 +30,7 @@ def test_desktop_shell_uses_pywebview_edge_runtime_and_safe_backend_lifecycle() 
     assert "ALLOWED_ORIGIN" in script
     assert "webbrowser.open(current)" in script
     assert "js_api" not in script
+    assert 'APP_NAME = "智能药物浓度预测平台"' in script
 
 
 def test_stopper_uses_safe_hidden_process_and_existing_lifecycle() -> None:
@@ -43,6 +44,7 @@ def test_stopper_uses_safe_hidden_process_and_existing_lifecycle() -> None:
     assert "stdout=stdout" in script
     assert "stderr=stderr" in script
     assert "taskkill" not in script.lower()
+    assert 'APP_NAME = "智能药物浓度预测平台"' in script
 
 
 def test_inno_shortcuts_target_packaged_pythonw_launchers() -> None:
@@ -65,7 +67,16 @@ def test_inno_shortcuts_target_packaged_pythonw_launchers() -> None:
     assert "ResultCode <> 0" in script
     assert "Abort;" in script
     assert "Local runtime initialization failed" in script
-    assert "Drug Gradient Chip - Browser Mode" in script
+    assert "智能药物浓度预测平台 - Browser Mode" in script
+    assert "AppName=智能药物浓度预测平台" in script
+    assert "DefaultGroupName=智能药物浓度预测平台" in script
+    assert "UsePreviousGroup=no" in script
+    assert "UninstallDisplayName=智能药物浓度预测平台" in script
+    assert "VersionInfoProductName=智能药物浓度预测平台" in script
+    assert 'Name: "{autodesktop}\\智能药物浓度预测平台"' in script
+    assert 'Name: "{userprograms}\\Drug Gradient Chip\\Drug Gradient Chip.lnk"' in script
+    assert 'Name: "{autodesktop}\\Drug Gradient Chip.lnk"' in script
+    assert 'Type: dirifempty; Name: "{userprograms}\\Drug Gradient Chip"' in script
     assert "MicrosoftEdgeWebView2RuntimeInstallerX64.exe" in script
     assert "EnsureWebView2Runtime" in script
     assert "WebView2 Runtime already installed" in script
@@ -93,7 +104,8 @@ def test_installer_build_script_resolves_iscc_without_hardcoded_single_path() ->
     assert "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe" in script
     assert "${env:ProgramFiles}\\Inno Setup 6\\ISCC.exe" in script
     assert "DGC_PACKAGE_ROOT" in script
-    assert "DrugGradientChip-Setup-$Version-Windows-x64.exe" in script
+    assert "$ProductDisplayName-Setup-$Version-Windows-x64.exe" in script
+    assert "\\u667a\\u80fd\\u836f\\u7269\\u6d53\\u5ea6\\u9884\\u6d4b\\u5e73\\u53f0" in script
 
 
 def test_installer_package_includes_shared_runtime_initialization_scripts() -> None:

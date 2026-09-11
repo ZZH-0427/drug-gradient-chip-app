@@ -17,6 +17,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$ProductDisplayName = '"\u667a\u80fd\u836f\u7269\u6d53\u5ea6\u9884\u6d4b\u5e73\u53f0"' | ConvertFrom-Json
 
 function Info([string]$Message) { Write-Host "[info] $Message" }
 function Warn([string]$Message) { Write-Warning $Message }
@@ -665,8 +666,8 @@ with tarfile.open(archive, "r:gz") as handle:
     $buildInfo = [ordered]@{
         schema_version = 1
         app_name = "drug-gradient-chip"
-        product = "Drug Concentration Gradient Chip Prediction System"
-        chinese_name = "药物浓度梯度芯片预测系统"
+        product = $ProductDisplayName
+        chinese_name = $ProductDisplayName
         version = $appVersion
         release_channel = "internal-test"
         release_stage = "Release Candidate"
@@ -712,8 +713,8 @@ with tarfile.open(archive, "r:gz") as handle:
     }
     Write-JsonFile -Path (Join-Path $stageRoot "BUILD_INFO.json") -Value $buildInfo
     Write-Text -Path (Join-Path $stageRoot "TEST_BUILD_INFO.txt") -Text @"
-Product: Drug Concentration Gradient Chip Prediction System
-Chinese name: 药物浓度梯度芯片预测系统
+Product: $ProductDisplayName
+Chinese name: $ProductDisplayName
 Version: $appVersion
 Release channel: internal-test
 Release stage: Release Candidate
@@ -747,7 +748,7 @@ pythonnet version: $($coreVersions.pythonnet)
 WebView2 strategy: Setup embeds the official Microsoft Edge WebView2 Evergreen Standalone Installer. Portable ZIP uses the system WebView2 Runtime and Browser Mode fallback.
 "@
     Write-Text -Path (Join-Path $stageRoot "README.txt") -Text @"
-Drug Concentration Gradient Chip Prediction System
+$ProductDisplayName
 Version: $appVersion
 Release channel: internal-test / Release Candidate
 
@@ -830,7 +831,7 @@ Do not move a directory after it has been started. To migrate the app, extract t
         $packageRootA = Join-Path $extractRootA $packageName
         Invoke-PortableFirstAndSecondStartValidation -PackageRoot $packageRootA -PayloadPath $payloadPath -Port 8000
 
-        $chinesePathName = "Drug Gradient Chip " + [string][char]0x4e2d + [string][char]0x6587
+        $chinesePathName = $ProductDisplayName + " " + [string][char]0x4e2d + [string][char]0x6587
         $extractRootB = Join-Path (Join-Path $buildRoot "path B with spaces") $chinesePathName
         Expand-ZipArchiveWithPython -Python $buildPython -ZipPath $zipPath -DestinationRoot $extractRootB -BuildRoot $buildRoot
         $packageRootB = Join-Path $extractRootB $packageName

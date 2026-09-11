@@ -112,7 +112,7 @@ def test_lifecycle_identity_reads_utf8_no_bom_chinese_identity_file(
   "schema_version": 1,
   "pid": 1234,
   "identity_token": "token-1",
-  "application_root": "D:\\\\安装版 Drug Gradient Chip rc7 中文",
+  "application_root": "D:\\\\安装版 智能药物浓度预测平台 rc7 中文",
   "app_module": "backend.app.main:app",
   "host": "127.0.0.1",
   "port": "8000"

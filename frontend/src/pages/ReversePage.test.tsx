@@ -31,7 +31,7 @@ describe("Reverse localized form", () => {
     expect(screen.getByRole("heading", { name: "反向预测" })).toBeInTheDocument();
     expect(screen.getByText("芯片结构优化")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始反向预测" })).toBeInTheDocument();
-    expect(document.title).toBe("反向预测 | 药物浓度梯度芯片");
+    expect(document.title).toBe("反向预测 | 智能药物浓度预测平台");
     expect(document.body.textContent).not.toContain("反向设计");
     expect(document.body.textContent).not.toContain("Reverse Design");
   });
@@ -49,7 +49,7 @@ describe("Reverse localized form", () => {
     expect(screen.getByRole("button", { name: "Start Reverse Prediction" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Inlet1" })).toBeChecked();
     expect(screen.getByRole("spinbutton", { name: "y1 Target Concentration" })).toHaveValue(0.42);
-    expect(document.title).toBe("Reverse Prediction | Drug Concentration Gradient Chip");
+    expect(document.title).toBe("Reverse Prediction | 智能药物浓度预测平台");
   });
 
   it("uses a segmented inlet selector and submits Inlet1 as inlet1=1 and inlet2=0", async () => {

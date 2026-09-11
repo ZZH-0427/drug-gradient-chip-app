@@ -12,6 +12,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$ProductDisplayName = '"\u667a\u80fd\u836f\u7269\u6d53\u5ea6\u9884\u6d4b\u5e73\u53f0"' | ConvertFrom-Json
 
 function Info([string]$Message) { Write-Host "[info] $Message" }
 function Fail([string]$Message) { Write-Host "[error] $Message" }
@@ -147,7 +148,7 @@ try {
     $portableName = "DrugGradientChip-$Version-Windows-x64-CPU-Portable"
     $stageRoot = Join-Path $root ".build\portable\$stagePackageName"
     $portableZip = Join-Path $output "$portableName.zip"
-    $setupExe = Join-Path $output "DrugGradientChip-Setup-$Version-Windows-x64.exe"
+    $setupExe = Join-Path $output "$ProductDisplayName-Setup-$Version-Windows-x64.exe"
     if (Test-Path -LiteralPath $portableZip) { throw "Refusing to overwrite existing portable ZIP: $portableZip" }
     if (Test-Path -LiteralPath "$portableZip.sha256") { throw "Refusing to overwrite existing portable ZIP checksum: $portableZip.sha256" }
     if (Test-Path -LiteralPath $setupExe) { throw "Refusing to overwrite existing setup executable: $setupExe" }
@@ -195,7 +196,7 @@ try {
     $buildInfo | Add-Member -NotePropertyName webview2_installer_file_version -NotePropertyValue $webView2Installer.FileVersion -Force
     $buildInfo | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $buildInfoPath -Encoding UTF8
     Add-Content -LiteralPath (Join-Path $stageRoot "TEST_BUILD_INFO.txt") -Encoding UTF8 -Value @"
-Installer: DrugGradientChip-Setup-$Version-Windows-x64.exe
+Installer: $ProductDisplayName-Setup-$Version-Windows-x64.exe
 Installer builder script: scripts/build_windows_installer.ps1
 Source branch: $branch
 Source commit: $sourceCommitForPackage
@@ -214,7 +215,7 @@ WebView2 installer file version: $($webView2Installer.FileVersion)
     $env:DGC_APP_VERSION = $Version
     $env:DGC_PACKAGE_ROOT = $stageRoot
     $env:DGC_OUTPUT_DIR = $output
-    $env:DGC_OUTPUT_BASE_FILENAME = "DrugGradientChip-Setup-$Version-Windows-x64"
+    $env:DGC_OUTPUT_BASE_FILENAME = "$ProductDisplayName-Setup-$Version-Windows-x64"
     $env:DGC_APP_ICON = $iconPath
     $env:DGC_WEBVIEW2_INSTALLER = $webView2Installer.Path
     try {

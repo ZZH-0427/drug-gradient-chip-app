@@ -4,8 +4,8 @@ type MessageTree<T> = {
 
 export const zhCN = {
   app: {
-    productName: "药物浓度梯度芯片",
-    fullName: "药物浓度梯度芯片预测系统",
+    productName: "智能药物浓度预测平台",
+    fullName: "智能药物浓度预测平台",
     navLabel: "主导航",
     home: "首页",
     forward: "正向预测",
@@ -13,10 +13,10 @@ export const zhCN = {
     languageLabel: "切换界面语言",
   },
   titles: {
-    home: "药物浓度梯度芯片",
-    forward: "正向预测 | 药物浓度梯度芯片",
-    reverse: "反向预测 | 药物浓度梯度芯片",
-    notFound: "页面未找到 | 药物浓度梯度芯片",
+    home: "智能药物浓度预测平台",
+    forward: "正向预测 | 智能药物浓度预测平台",
+    reverse: "反向预测 | 智能药物浓度预测平台",
+    notFound: "页面未找到 | 智能药物浓度预测平台",
   },
   language: {
     chinese: "中文",
@@ -196,8 +196,8 @@ export const zhCN = {
 
 export const en = {
   app: {
-    productName: "Drug Concentration Gradient Chip",
-    fullName: "Drug Concentration Gradient Chip Prediction System",
+    productName: "智能药物浓度预测平台",
+    fullName: "智能药物浓度预测平台",
     navLabel: "Main navigation",
     home: "Home",
     forward: "Forward Prediction",
@@ -205,10 +205,10 @@ export const en = {
     languageLabel: "Switch interface language",
   },
   titles: {
-    home: "Drug Concentration Gradient Chip",
-    forward: "Forward Prediction | Drug Concentration Gradient Chip",
-    reverse: "Reverse Prediction | Drug Concentration Gradient Chip",
-    notFound: "Page Not Found | Drug Concentration Gradient Chip",
+    home: "智能药物浓度预测平台",
+    forward: "Forward Prediction | 智能药物浓度预测平台",
+    reverse: "Reverse Prediction | 智能药物浓度预测平台",
+    notFound: "Page Not Found | 智能药物浓度预测平台",
   },
   language: {
     chinese: "中文",

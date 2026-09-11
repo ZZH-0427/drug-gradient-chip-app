@@ -25,7 +25,7 @@ describe("App localization", () => {
     expect(screen.getByRole("group", { name: "切换界面语言" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "中文" })).toHaveAttribute("aria-pressed", "true");
     expect(document.documentElement.lang).toBe("zh-CN");
-    expect(document.title).toBe("药物浓度梯度芯片");
+    expect(document.title).toBe("智能药物浓度预测平台");
     expect(document.body.textContent).not.toContain("反向设计");
     expect(document.body.textContent).not.toContain("Reverse Design");
   });
@@ -36,7 +36,7 @@ describe("App localization", () => {
     renderApp("/");
 
     expect(screen.getByRole("button", { name: "中文" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("heading", { name: "药物浓度梯度芯片" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "智能药物浓度预测平台" })).toBeInTheDocument();
   });
 
   it("switches to English, persists locale, and switches back without routing", async () => {
@@ -51,7 +51,7 @@ describe("App localization", () => {
     expect(screen.getByRole("button", { name: "EN" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("heading", { name: "Reverse Prediction" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("en");
-    expect(document.title).toBe("Reverse Prediction | Drug Concentration Gradient Chip");
+    expect(document.title).toBe("Reverse Prediction | 智能药物浓度预测平台");
 
     await user.click(screen.getByRole("button", { name: "中文" }));
 
@@ -67,7 +67,7 @@ describe("App localization", () => {
 
     expect(screen.getByRole("heading", { name: "Page Not Found" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Home" })).toBeInTheDocument();
-    expect(document.title).toBe("Page Not Found | Drug Concentration Gradient Chip");
+    expect(document.title).toBe("Page Not Found | 智能药物浓度预测平台");
   });
 
   it("supports keyboard operation for the language switcher", async () => {
@@ -78,7 +78,7 @@ describe("App localization", () => {
     await user.keyboard("{Enter}");
 
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("en");
-    expect(screen.getByRole("heading", { name: "Drug Concentration Gradient Chip" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "智能药物浓度预测平台" })).toBeInTheDocument();
   });
 
   it("continues to render in Chinese when localStorage read or write fails", async () => {
@@ -91,10 +91,10 @@ describe("App localization", () => {
     const user = userEvent.setup();
 
     renderApp("/");
-    expect(screen.getByRole("heading", { name: "药物浓度梯度芯片" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "智能药物浓度预测平台" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "EN" }));
-    expect(screen.getByRole("heading", { name: "Drug Concentration Gradient Chip" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "智能药物浓度预测平台" })).toBeInTheDocument();
     expect(getItem).toHaveBeenCalled();
     expect(setItem).toHaveBeenCalled();
   });

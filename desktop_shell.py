@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-APP_NAME = "Drug Gradient Chip"
+APP_NAME = "智能药物浓度预测平台"
 LOG_DIR_NAME = "DrugGradientChip"
 LOCAL_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
@@ -326,13 +326,13 @@ def desktop_mode(root: Path, log_dir: Path, extra_args: list[str]) -> int:
     if (root / "runtime" / "python.exe").exists() and not marker.exists():
         message_box(
             APP_NAME,
-            "Drug Gradient Chip is preparing its local runtime for first use. This may take several minutes.",
+            f"{APP_NAME} is preparing its local runtime for first use. This may take several minutes.",
         )
     code = run_start_script(root, log_dir, browser=False, extra_args=extra_args)
     if code != 0:
         message_box(
             APP_NAME,
-            f"Drug Gradient Chip could not start. Exit code: {code}\nLogs: {log_dir}",
+            f"{APP_NAME} could not start. Exit code: {code}\nLogs: {log_dir}",
             error=True,
         )
         return code

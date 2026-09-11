@@ -7,11 +7,12 @@
 
 [Setup]
 AppId={{7A5CF9E1-B27E-4BC2-B723-D5AB6C7AF204}
-AppName=Drug Gradient Chip
+AppName=智能药物浓度预测平台
 AppVersion={#AppVersion}
-AppPublisher=Drug Gradient Chip
+AppPublisher=智能药物浓度预测平台
 DefaultDirName={localappdata}\Programs\DrugGradientChip
-DefaultGroupName=Drug Gradient Chip
+DefaultGroupName=智能药物浓度预测平台
+UsePreviousGroup=no
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBaseFilename}
@@ -21,7 +22,9 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64
 PrivilegesRequired=lowest
-UninstallDisplayName=Drug Gradient Chip
+UninstallDisplayName=智能药物浓度预测平台
+VersionInfoDescription=智能药物浓度预测平台 安装程序
+VersionInfoProductName=智能药物浓度预测平台
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
@@ -31,10 +34,17 @@ Source: "{#PackageRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 Source: "{#WebView2Installer}"; DestDir: "{tmp}"; DestName: "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: deleteafterinstall
 
 [Icons]
-Name: "{group}\Drug Gradient Chip"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"
-Name: "{group}\Drug Gradient Chip - Browser Mode"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\launcher.pyw"" --browser-mode"; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"
-Name: "{group}\Stop Drug Gradient Chip"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\stopper.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"
-Name: "{autodesktop}\Drug Gradient Chip"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"; Tasks: desktopicon
+Name: "{group}\智能药物浓度预测平台"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"
+Name: "{group}\智能药物浓度预测平台 - Browser Mode"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\launcher.pyw"" --browser-mode"; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"
+Name: "{group}\Stop 智能药物浓度预测平台"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\stopper.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"
+Name: "{autodesktop}\智能药物浓度预测平台"; Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\resources\drug-gradient-chip.ico"; Tasks: desktopicon
+
+[InstallDelete]
+Type: files; Name: "{userprograms}\Drug Gradient Chip\Drug Gradient Chip.lnk"
+Type: files; Name: "{userprograms}\Drug Gradient Chip\Drug Gradient Chip - Browser Mode.lnk"
+Type: files; Name: "{userprograms}\Drug Gradient Chip\Stop Drug Gradient Chip.lnk"
+Type: dirifempty; Name: "{userprograms}\Drug Gradient Chip"
+Type: files; Name: "{autodesktop}\Drug Gradient Chip.lnk"
 
 [UninstallRun]
 Filename: "{app}\runtime\pythonw.exe"; Parameters: """{app}\stopper.pyw"" --quiet"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; RunOnceId: "StopDrugGradientChip"
@@ -114,12 +124,12 @@ begin
   StopperPath := ExpandConstant('{app}\stopper.pyw');
   if FileExists(PythonPath) and FileExists(StopperPath) then
   begin
-    WizardForm.StatusLabel.Caption := 'Stopping existing Drug Gradient Chip instance...';
-    Log('Stopping existing Drug Gradient Chip instance before upgrade.');
+    WizardForm.StatusLabel.Caption := 'Stopping existing 智能药物浓度预测平台 instance...';
+    Log('Stopping existing 智能药物浓度预测平台 instance before upgrade.');
     if (not Exec(PythonPath, '"' + StopperPath + '" --quiet', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)) or
        (ResultCode <> 0) then
     begin
-      MsgBox('Could not stop the existing Drug Gradient Chip instance. Please close the app and retry setup.', mbError, MB_OK);
+      MsgBox('Could not stop the existing 智能药物浓度预测平台 instance. Please close the app and retry setup.', mbError, MB_OK);
       Abort;
     end;
   end;

@@ -1,4 +1,4 @@
-# Drug Gradient Chip App
+# 智能药物浓度预测平台
 
 Local FastAPI and React application for drug concentration gradient chip
 dynamic forward prediction and fixed-six-chip Reverse Prediction.

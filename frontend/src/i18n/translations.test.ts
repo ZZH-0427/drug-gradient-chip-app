@@ -16,6 +16,7 @@ const allowedSharedValues = new Set([
   "selected restart",
   "Not Found",
   "Forward Prediction",
+  "智能药物浓度预测平台",
   "bend class",
 ]);
 

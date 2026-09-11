@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-APP_NAME = "Drug Gradient Chip"
+APP_NAME = "智能药物浓度预测平台"
 LOG_DIR_NAME = "DrugGradientChip"
 CREATE_NO_WINDOW = 0x08000000
 

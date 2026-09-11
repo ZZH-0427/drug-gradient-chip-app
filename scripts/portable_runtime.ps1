@@ -2,6 +2,7 @@
 param()
 
 Set-StrictMode -Version Latest
+$ProductDisplayName = '"\u667a\u80fd\u836f\u7269\u6d53\u5ea6\u9884\u6d4b\u5e73\u53f0"' | ConvertFrom-Json
 
 function Write-PortableRuntimeInfo([string]$Message) { Write-Host "[info] $Message" }
 function Write-PortableRuntimeWarn([string]$Message) { Write-Warning $Message }
@@ -172,7 +173,7 @@ function Ensure-PortableRuntimeReady {
         $stdoutLog = Join-Path $LogsDir "conda-unpack.stdout.log"
         $stderrLog = Join-Path $LogsDir "conda-unpack.stderr.log"
         $quotedCondaUnpackScript = "`"$condaUnpackScript`""
-        Write-PortableRuntimeInfo "Drug Gradient Chip is preparing its local runtime for first use. This may take several minutes."
+        Write-PortableRuntimeInfo "$ProductDisplayName is preparing its local runtime for first use. This may take several minutes."
         Write-PortableRuntimeInfo "Relocating portable runtime for this directory."
         $process = Invoke-PortableRuntimeProcessWithTimeout -FilePath $runtimePython -ArgumentList @($quotedCondaUnpackScript) -WorkingDirectory $Root -TimeoutSeconds $TimeoutSeconds -NoNewWindow -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
         if ($process.ExitCode -ne 0) {
