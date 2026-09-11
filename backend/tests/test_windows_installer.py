@@ -6,6 +6,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_windows_release_version_defaults_are_aligned() -> None:
+    installer_script = (
+        ROOT / "scripts" / "build_windows_installer.ps1"
+    ).read_text(encoding="utf-8")
+    portable_script = (
+        ROOT / "scripts" / "build_portable_package.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "0.3.0-rc9"
+    assert '[string]$Version = "0.3.0-rc9"' in installer_script
+    assert "Get-AppVersion -Root $root -RequestedVersion $Version" in portable_script
+    assert 'Join-Path $Root "VERSION"' in portable_script
+    assert '$env:DGC_APP_VERSION = $Version' in installer_script
+    assert (
+        '$env:DGC_OUTPUT_BASE_FILENAME = '
+        '"$ProductDisplayName-Setup-$Version-Windows-x64"'
+    ) in installer_script
+
+
 def test_launcher_defaults_to_desktop_shell_and_keeps_browser_mode() -> None:
     script = (ROOT / "launcher.pyw").read_text(encoding="utf-8")
 

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.3.0-rc7",
+    [string]$Version = "0.3.0-rc9",
     [string]$SourceCommit = "",
     [string]$ProductFeatureBaseline = "",
     [string]$OutputRoot = "",
