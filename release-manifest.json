@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "project_name": "智能药物浓度预测平台",
+  "release_version": "v0.4.0-rc1",
+  "release_channel": "pre-release",
+  "release_status": "debug-testing",
+  "release_record_type": "binary-only release metadata",
+  "tag_name": "v0.4.0-rc1",
+  "tag_semantics": "binary-only release metadata tag; not a complete Android source-code release",
+  "metadata_history": {
+    "branch": "release/android-binary",
+    "root_commit_without_parents": true,
+    "android_source_included": false,
+    "full_android_source_hosted_by_this_tag": false
+  },
+  "application": {
+    "application_id": "com.druggradientchip.android",
+    "version_name": "0.4.0-rc1",
+    "version_code": 4,
+    "languages": [
+      "en",
+      "zh-CN"
+    ],
+    "features": [
+      "Forward",
+      "Reverse",
+      "Assistant"
+    ],
+    "inference": "local ExecuTorch"
+  },
+  "apk": {
+    "file_name": "智能药物浓度预测平台-Android-v0.4.0-rc1-debug.apk",
+    "size_bytes": 59657335,
+    "sha256": "3ced38ae1b725c02d4b088c3d1fd0afa4f16763dce1e212b3881f78b301dc464",
+    "checksum_file_name": "智能药物浓度预测平台-Android-v0.4.0-rc1-debug.apk.sha256",
+    "signing_type": "Android Debug self-signed certificate",
+    "production_signed": false,
+    "production_stable_release": false,
+    "existing_debug_signature_preserved": true,
+    "required_pte_models_embedded": 7
+  },
+  "validation": {
+    "this_preparation": "Existing APK copy and full byte-size/SHA256 integrity verification only",
+    "application_or_model_execution_performed": false,
+    "rebuild_performed": false,
+    "resigning_performed": false,
+    "functional_test_results": "Prior results belong to historical validation on the old computer; not rerun in this preparation"
+  },
+  "source_provenance": {
+    "historical_android_development_commit": "f46b1c826521b52937e9995e257d85028ef4027e",
+    "relationship": "Historical provenance reference only; not a parent commit and not the target of this tag",
+    "strict_reproducible_apk_to_source_commit_binding_established": false
+  },
+  "scope_exclusions": [
+    "Android source-code tree",
+    "Original development Git history",
+    "Standalone PTE models",
+    "PT bundles",
+    "Experimental golden JSON and metrics",
+    "Scientific data and research reports",
+    "Conda environments and build caches",
+    "Signing keys and credentials"
+  ],
+  "prepared_at": "2026-11-10T21:55:55+08:00",
+  "timezone": "Asia/Singapore",
+  "publication_performed": false
+}
