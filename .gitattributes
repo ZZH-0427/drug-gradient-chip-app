@@ -10,6 +10,8 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.csv text eol=lf
+# Preserve research Dataset CSV files byte-for-byte, including their line endings.
+/Dataset/**/*.csv -text !eol
 .env.example text eol=lf
 
 *.bat text eol=crlf
